@@ -27,10 +27,14 @@ node dist/index.js
 # Listens on PORT (default 8101)
 ```
 
-## Modes
+## Routing
 
-- `mode: "qa"` — fast biology Q&A (default)
-- `mode: "deep_research"` — clarification → plan → multi-database + literature report
+The agent classifies each question and chooses the path (the UI no longer toggles Q&A vs Deep Research):
+
+- **Direct answer** — greetings, help, capabilities, biology concept questions (`what is / 什么是`), and polite refusals for non-biology topics. Biology concepts and refusals end by steering the user toward a concrete PTM site question.
+- **Investigation** — gene/site, mechanism, literature, and other evidence-seeking PTM questions: optional clarification (skipped when gene/UniProt **and** site are already known) → multi-database plan → report.
+
+`mode` in the `/chat` body is accepted for compatibility but does not select the path.
 
 ## MCP
 

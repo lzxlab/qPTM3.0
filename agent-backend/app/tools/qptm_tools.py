@@ -21,17 +21,19 @@ from app.tools.registry import registry
 
 logger = logging.getLogger(__name__)
 
-# Shared HTTP client (reused across calls)
-_http_client: httpx.AsyncClient | None = None
+_sync_http: httpx.Client | None = None
 
 
 def _sync_client() -> httpx.Client:
-    """Get a synchronous httpx client for tool execution."""
-    return httpx.Client(
-        base_url=settings.qptm_api_base_url,
-        timeout=settings.http_timeout_seconds,
-        headers={"Accept": "application/json"},
-    )
+    """Process-wide client — do not close per request."""
+    global _sync_http
+    if _sync_http is None:
+        _sync_http = httpx.Client(
+            base_url=settings.qptm_api_base_url,
+            timeout=settings.http_timeout_seconds,
+            headers={"Accept": "application/json"},
+        )
+    return _sync_http
 
 
 def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -40,21 +42,21 @@ def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     HTTP 4xx/5xx are returned as ``{"error", "http_status"}`` so callers can
     surface a clean failure instead of raising inside the tool handler.
     """
-    with _sync_client() as client:
-        resp = client.get(path, params=params)
-        if resp.status_code >= 400:
+    client = _sync_client()
+    resp = client.get(path, params=params)
+    if resp.status_code >= 400:
+        snippet = ""
+        try:
+            snippet = (resp.text or "")[:240]
+        except Exception:
             snippet = ""
-            try:
-                snippet = (resp.text or "")[:240]
-            except Exception:
-                snippet = ""
-            logger.warning("qPTM API %s HTTP %s: %s", path, resp.status_code, snippet)
-            return {
-                "error": f"qPTM API {path} HTTP {resp.status_code}",
-                "http_status": resp.status_code,
-                "detail": snippet,
-            }
-        return resp.json()
+        logger.warning("qPTM API %s HTTP %s: %s", path, resp.status_code, snippet)
+        return {
+            "error": f"qPTM API {path} HTTP {resp.status_code}",
+            "http_status": resp.status_code,
+            "detail": snippet,
+        }
+    return resp.json()
 
 
 # ── Tool 1: qptm_search ───────────────────────────────────────────

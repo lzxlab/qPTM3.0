@@ -5,35 +5,40 @@ A comprehensive resource for quantitative post-translational modification (PTM) 
 
 ## Architecture
 
+Chat (SSE), classify, and conversations are served by **agent-runtime** (TypeScript / Hono, port 8101). Collection jobs, tool registry, and PDF export stay on **agent-backend** (FastAPI, port 8100). Runtime talks to Python tools over MCP stdio.
+
 ```
-┌─────────────────┐     SSE      ┌──────────────────┐     HTTP     ┌─────────────┐
-│  Chat Frontend  │ ──────────→  │  Python Backend  │ ──────────→  │  PHP API    │
-│  (agent.php)    │              │  (FastAPI)       │              │  (api/)     │
-│  on web server  │  ←────────── │  port 8100       │  ←────────── │  MySQL      │
-└─────────────────┘   SSE events └────────┬─────────┘   JSON       └─────────────┘
-                                         │
-                    ┌────────────────────┼────────────────────┐
-                    │                    │                    │
-              ┌─────▼─────┐      ┌──────▼──────┐      ┌──────▼──────┐
-              │  UniProt  │      │  iPTMnet    │      │  Local data │
-              │  REST API │      │  REST API   │      │  (TSV/CSV)  │
-              └───────────┘      └─────────────┘      └─────────────┘
+┌─────────────┐  /agent-api/chat|classify|conversations   ┌──────────────────┐
+│  agent.php  │ ─────────────────────────────────────────►│ agent-runtime    │
+│  + agent.js │                                           │ Hono :8101       │
+└──────┬──────┘  /agent-api/collection|tools|export       └────────┬─────────┘
+       └──────────────────────────────────────────►┌───────────────▼─────────┐
+                                                   │ agent-backend FastAPI   │
+                                                   │ :8100  + MCP stdio      │
+                                                   └───────────┬─────────────┘
+                         ┌─────────────────────────────────────┼──────────────┐
+                         ▼                                     ▼              ▼
+                   api/*.php (MySQL)                    data/*/SOURCE.yaml   UniProt / PubTator / …
 ```
 
 | Component | Technology | Location |
-|-----------|-----------|----------|------|
+|-----------|-----------|----------|
 | Website frontend | HTML/JS/CSS | Root `*.html` |
 | Website backend | PHP + MySQL | `resource/functions.php` |
-| Agent chat UI | HTML/JS/CSS | `agent.php` |
-| Agent REST API | PHP + MySQL | `api/*.php` |
-| Agent backend | Python + FastAPI | `agent-backend/` |
-| LLM | DeepSeek V3 | External API |
+| Agent chat UI | HTML/JS | `agent.php`, `assets/js/agent.js` |
+| qPTM data API | PHP + MySQL | `api/*.php` |
+| Agent runtime | TypeScript + Hono | `agent-runtime/` (unified Q&A + investigation) |
+| Agent backend | Python + FastAPI | `agent-backend/` (tools, collection, MCP) |
+| Collection CLI | TypeScript | `collection-agent/` |
+| LLM | DeepSeek (OpenAI-compatible) | External API |
+
+Apache routing: `deploy/apache-agent-runtime.conf`.
 
 ## Tools
 
-The agent backend registers tools that the LLM can call during a conversation. Each tool queries a specific data source and returns structured results.
+The agent backend registers ~49 tools (`agent-backend/app/tools/register_all.py`). Each tool queries a specific data source and returns structured results. Runtime selects a top-K subset per question.
 
-### Current Tools (9)
+### Representative tools (not the full catalog)
 
 | # | Tool | Stage | Data Source | Direction |
 |---|------|-------|-------------|-----------|
@@ -103,13 +108,18 @@ The `ptm_stability` tool (tool 9) uses a manually curated dataset extracted from
 
 ## API Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/health` | Health check + tool count |
-| POST | `/chat` | Streaming chat (SSE) |
-| GET | `/tools` | List all registered tools |
-| GET | `/session/{id}` | Get session workflow state |
-| DELETE | `/session/{id}` | Reset session |
+Apache `/agent-api/*` splits by service:
+
+| Method | Path | Service | Description |
+|--------|------|---------|-------------|
+| GET | `/health` | runtime :8101 | Runtime + MCP + backend aggregation |
+| POST | `/chat` | runtime :8101 | Streaming chat (SSE) |
+| POST | `/classify` | runtime :8101 | Intent routing (incl. collection / PXD) |
+| GET/POST/DELETE | `/conversations` | runtime :8101 | Per-device conversation history |
+| POST | `/reset-session` | runtime :8101 | Clear in-memory + persisted investigation state |
+| GET | `/tools` | backend :8100 | List registered Python tools |
+| POST | `/collection/...` | backend :8100 | Literature collection jobs |
+| POST | `/export/answer-pdf` | backend :8100 | Markdown → PDF |
 
 
 ## Configuration

@@ -1,0 +1,8 @@
+
+20260910 06:21:06	qPTM3	phosphorylation	qPTM3_phosphorylation.csv.gz	Test User	Test University	China	test@example.com
+
+20260910 06:22:21	qPTM3	phosphorylation	qPTM3_phosphorylation.csv.gz	Test User	Test University	China	test@example.com
+
+20260910 06:22:56	qPTM3	phosphorylation	qPTM3_phosphorylation.csv.gz	Test User	Test University	China	test2@example.com
+
+20260910 06:23:51	qPTM3	phosphorylation	qPTM3_phosphorylation.csv.gz	Test User	Test University	China	test5@example.com

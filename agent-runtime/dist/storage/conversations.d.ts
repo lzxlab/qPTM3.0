@@ -13,6 +13,9 @@ export declare function getConversation(conversationId: string, deviceId: string
     }[];
 } | null;
 export declare function deleteConversation(conversationId: string, deviceId: string): boolean;
+export declare function saveConversationState(conversationId: string, state: Record<string, unknown>): void;
+export declare function loadConversationState(conversationId: string): Record<string, unknown> | null;
+export declare function clearConversationState(conversationId: string): void;
 export declare function addMessage(conversationId: string, role: string, content: string, meta?: Record<string, unknown> | null): void;
 export declare function updateTitle(conversationId: string, title: string): void;
 export declare function titleFromMessage(msg: string): string;

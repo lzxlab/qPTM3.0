@@ -139,7 +139,7 @@ def _build_entities(args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("query") or "")
     entities = parse_query_entities(query)
     entities["query"] = query
-    for key in ("gene", "uniprot_ac", "position", "ptm_type", "pmid", "organism"):
+    for key in ("gene", "uniprot_ac", "position", "ptm_type", "pmid", "organism", "entity"):
         val = args.get(key)
         if val not in (None, "", 0, "0"):
             entities[key] = val

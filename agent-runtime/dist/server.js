@@ -1,24 +1,49 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { randomUUID } from "node:crypto";
 import { cfg } from "./config.js";
 import { agentEventToSse } from "./sse.js";
-import { runAgent, newSessionId } from "./agent/run.js";
-import { createConversation, listConversations, getConversation, deleteConversation, addMessage, updateTitle, belongsToDevice, titleFromMessage, } from "./storage/conversations.js";
+import { runAgent, newSessionId, snapshotSession } from "./agent/run.js";
+import { createConversation, listConversations, getConversation, deleteConversation, addMessage, updateTitle, belongsToDevice, titleFromMessage, saveConversationState, clearConversationState, } from "./storage/conversations.js";
 import { classifyQueryMode, gateReply, detectLang } from "./agent/gate.js";
 import { parseEntities } from "./context/memory.js";
 import { resetSession } from "./context/session.js";
 import { sanitizeUserVisibleText } from "./agent/protocol.js";
 import { runWithOpenCodeSession } from "./llm/session-context.js";
+import { pingQptmMcp, qptmMcpConnected } from "./mcp/hub.js";
 const app = new Hono();
 app.use("*", cors({
     origin: cfg.corsOrigins.includes("*") ? "*" : cfg.corsOrigins,
-    allowHeaders: ["Content-Type", "X-Device-Id"],
+    allowHeaders: ["Content-Type", "X-Device-Id", "X-Trace-Id"],
+    exposeHeaders: ["X-Session-Id", "X-Conversation-Id", "X-Trace-Id"],
 }));
 function deviceId(c) {
     const id = c.req.header("X-Device-Id");
     return id?.trim() || null;
 }
-app.get("/health", (c) => c.json({ status: "ok", runtime: "agent-runtime-ts" }));
+app.get("/health", async (c) => {
+    const mcpOk = await pingQptmMcp();
+    let backend = { status: "unknown" };
+    try {
+        const res = await fetch(`${cfg.backendBaseUrl}/health`, {
+            signal: AbortSignal.timeout(2500),
+        });
+        backend = (await res.json());
+        backend.http_status = res.status;
+    }
+    catch (e) {
+        backend = { status: "down", error: String(e) };
+    }
+    const backendOk = backend.status === "ok";
+    const status = mcpOk && backendOk ? "ok" : "degraded";
+    return c.json({
+        status,
+        runtime: "agent-runtime-ts",
+        mcp_qptm: mcpOk,
+        mcp_connected: qptmMcpConnected(),
+        backend,
+    });
+});
 app.get("/conversations", (c) => {
     const did = deviceId(c);
     if (!did)
@@ -47,9 +72,11 @@ app.delete("/conversations/:id", (c) => {
     const did = deviceId(c);
     if (!did)
         return c.json({ error: "X-Device-Id required" }, 401);
-    const ok = deleteConversation(c.req.param("id"), did);
+    const id = c.req.param("id");
+    const ok = deleteConversation(id, did);
     if (!ok)
         return c.json({ error: "Not found" }, 404);
+    resetSession(id);
     return c.json({ ok: true });
 });
 app.post("/conversations/:id/messages", async (c) => {
@@ -69,15 +96,23 @@ app.post("/conversations/:id/messages", async (c) => {
 app.post("/reset-session", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const sid = String(body.session_id || "").trim();
+    const cid = String(body.conversation_id || "").trim();
     if (sid)
         resetSession(sid);
+    if (cid) {
+        resetSession(cid);
+        clearConversationState(cid);
+    }
     return c.json({ ok: true });
 });
 app.post("/classify", async (c) => {
     const body = await c.req.json();
     const message = String(body.message || "");
+    const filenames = Array.isArray(body.upload_filenames)
+        ? body.upload_filenames.map((n) => String(n))
+        : [];
     const entities = parseEntities(message);
-    const mode = classifyQueryMode(message, entities);
+    const mode = classifyQueryMode(message, entities, filenames);
     const lang = detectLang(message);
     const routeCollection = mode === "collection";
     return c.json({
@@ -101,6 +136,7 @@ app.post("/chat", async (c) => {
         content: sanitizeUserVisibleText(h.content || ""),
     }));
     const clarificationResponse = body.clarification_response;
+    const traceId = c.req.header("X-Trace-Id")?.trim() || randomUUID();
     let userMsg = message.trim();
     if (!userMsg && clarificationResponse) {
         userMsg = clarificationResponse.skip ? "（跳过补充，直接研究）" : "（已补充研究信息）";
@@ -128,6 +164,7 @@ app.post("/chat", async (c) => {
                     for await (const event of runAgent({
                         message: message || userMsg,
                         sessionId,
+                        conversationId,
                         history,
                         mode,
                         clarificationResponse,
@@ -143,14 +180,20 @@ app.post("/chat", async (c) => {
                 });
             }
             catch (e) {
+                console.warn(`[${traceId}] chat error:`, e);
                 const errSse = agentEventToSse({ type: "error", message: String(e) });
                 if (errSse)
                     controller.enqueue(encoder.encode(errSse));
+            }
+            const snap = snapshotSession(sessionId, conversationId);
+            if (snap && conversationId) {
+                saveConversationState(conversationId, snap);
             }
             if (fullAnswer) {
                 addMessage(conversationId, "assistant", sanitizeUserVisibleText(fullAnswer), {
                     follow_ups: followUps,
                     mode,
+                    trace_id: traceId,
                 });
             }
             controller.close();
@@ -164,6 +207,7 @@ app.post("/chat", async (c) => {
             "X-Accel-Buffering": "no",
             "X-Session-Id": sessionId,
             "X-Conversation-Id": conversationId,
+            "X-Trace-Id": traceId,
         },
     });
 });

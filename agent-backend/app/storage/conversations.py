@@ -1,4 +1,9 @@
-"""Persistent conversation storage keyed by browser device ID (SQLite)."""
+"""Persistent conversation storage keyed by browser device ID (SQLite).
+
+Chat HTTP no longer uses this module — agent-runtime owns
+``runtime/conversations/agent.db``. Kept so a stale Python process cannot
+silently invent a second writer. Do not import from new code.
+"""
 
 from __future__ import annotations
 

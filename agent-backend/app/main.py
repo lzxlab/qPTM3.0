@@ -1,7 +1,7 @@
 """FastAPI application for qPTM collection pipeline and tool registry.
 
 Chat, classify, and conversations are served by agent-runtime (TypeScript) on port 8101.
-This service (port 8100) handles /collection, /health, and /tools.
+This service (port 8100) handles /collection, /health, /tools, and /export.
 """
 
 import logging
@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.collection.routes import router as collection_router
+from app.export.routes import router as export_router
 from app.tools.registry import registry
 
 logging.basicConfig(
@@ -36,6 +37,7 @@ app.add_middleware(
 )
 
 app.include_router(collection_router)
+app.include_router(export_router)
 
 
 @app.on_event("startup")

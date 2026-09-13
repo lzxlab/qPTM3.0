@@ -41,7 +41,7 @@ export function applyResolvedIdentity(memory, result) {
 }
 /** Resolve gene/site → UniProt on every user turn (no stale-session short-circuit). */
 export async function resolveSessionTarget(memory, query) {
-    const result = await callQptmTool("qptm_resolve", {
+    const result = await callQptmTool("resolve_ptm_target", {
         query,
         gene: memory.gene && !isResidueToken(memory.gene) ? memory.gene : "",
         position: memory.position || 0,
@@ -57,13 +57,14 @@ export async function resolveSessionTarget(memory, query) {
     }
     return result;
 }
-export function invokeArgumentsJson(memory, query) {
+export function invokeArgumentsJson(memory, query, extra = {}) {
     return JSON.stringify({
         gene: memory.gene && !isResidueToken(memory.gene) ? memory.gene : "",
         position: memory.position || 0,
         uniprot_ac: memory.uniprot_ac || "",
         ptm_type: memory.ptm_type || "phosphorylation",
         query,
+        ...(extra.entity ? { entity: extra.entity } : {}),
     });
 }
 export function resolvedBanner(memory, lang) {

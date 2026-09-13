@@ -1,34 +1,40 @@
-# qPTM integrated databases — when to use what
+# qPTM research dimensions → MCP intent tools
 
-## Core quantitative (experimental)
-- **qPTM** (`qptm_search`, `qptm_site_conditions`, `qptm_kinases`): primary quantitative PTM events and site-level fold-changes.
-- **eKPI**: quantitative kinase–substrate correlations.
+Use this map to **choose databases** and **judge evidence gaps**. It is NOT a fixed report outline — only include dimensions the user asked about in the final answer.
 
-## Upstream regulators & enzymes
-- **PhosphoSitePlus**: curated kinase–substrate, regulatory sites, disease sites, PTMVar.
-- **iPTMnet**: enzyme–substrate and PTM-dependent PPI.
-- **GPS 6.0**: **predicted** kinase-specific sites (not experimental).
-- **GPS-Uber / GPS-SUMO**: predicted E3 / SUMO sites.
-- **WERAM / UbiBrowser**: histone acetylation / ubiquitin system.
+## Dimension map
 
-## Function, disease & stability
-- **Funcscore**: phosphosite functional priority scores.
-- **PTM-stability**: PTM effects on protein stability.
-- **PTMD / CancerProteome / ActiveDriverDB**: disease-associated PTMs and mutations.
-- **PTMcode2 / PTMint**: PTM crosstalk and PTM-regulated PPI.
+| Research question | User may ask | MCP intent | How to read results |
+|-------------------|--------------|------------|---------------------|
+| Who regulates the modification | kinases, E3, writers/erasers, drug-induced PTM | `get_upstream_enzymes`; PMADS upstream via `get_drug_ptm` | PSP in vivo before in vitro; qPTM/eKPI quantitative; GPS is **predicted** only |
+| Under what conditions | treatment, fold-change, tumor vs normal | `get_site_conditions`, `search_ptm_sites` | qPTM log2fc/qratio; CancerProteome `pmid` column is PDC id not PubMed |
+| Downstream: PPI / pathways | binding partners, pathways | `get_ppi_pathways` | PTMint Enhance/Inhibit; STRING channel scores |
+| Downstream: disease / mutation | cancer, ClinVar | `get_function_disease` | PTMD U/D/A/P/C/N codes; PSP disease/PTMVar separate blocks |
+| Downstream: drug sensitivity | inhibitors, therapy | `get_drug_ptm` | PMADS Curated vs Inferred; DrugBank is protein-level not site PTM |
+| Downstream: stability | stabilize/destabilize | `get_function_disease` (`ptm_stability` block) | experimental; Funcscore ≠ proven mechanism |
+| Downstream: localization / LLPS | compartment, phase separation | `get_localization`, `get_llps` | PTMPhaSe experimental vs PhosLLPS/dSCOPE predicted |
+| Where modification occurs | compartment, domain | `get_localization` | InterPro/Pfam = domain context not subcellular location |
 
-## Localization & structural context
-- **COMPARTMENTS / iNuLoC / InterPro**: localization, motifs, domains.
-- **PTMPhaSe / dSCOPE**: phase separation (LLPS).
+## When is a dimension satisfied?
 
-## Pathways & PPI
-- **Reactome / KEGG / PathBank**: pathways.
-- **STRING / BioGRID / IntAct**: PPI networks.
+- **Regulation**: at least one experimental or curated kinase/enzyme row (not GPS-only).
+- **Conditions**: quantitative fold-change or clear condition labels from qPTM/eKPI.
+- **Downstream**: non-empty blocks for the aspect the user asked (disease vs PPI vs drug).
+- **Localization**: compartment or domain evidence relevant to the question.
+- `empty_result` = no records in that database (not missing UniProt).
+- `call_bug` = call failed (retry once internally; then try literature or another intent).
+- Do **not** re-call an intent that returned `empty_result`.
+- Do **not** re-call an intent that already succeeded with non-predicted rows.
 
-## Literature
-- **PubTator3 / PubMed** via BioMCP `search article` / `get article`.
+## Depth search (literature)
+
+- `focus` must match a gap dimension: kinase, condition, function, disease, drug, localization, llps.
+- Query examples: `{GENE} S{pos} MTOR kinase phosphorylation` (regulation); `{GENE} S{pos} DNA damage treatment` (conditions).
+- Never use vague `GENE phosphorylation review` unless the user asked for a review.
+- Follow kinase names from database blocks when digging deeper.
 
 ## Rules
-- Prefer qPTM for **quantitative** human PTM when available.
-- Use GPS only with "predicted" label.
-- Empty DB result → state limitation; do not fabricate.
+
+- Prefer qPTM for quantitative human PTM.
+- Label GPS / PhosLLPS / dSCOPE predictions as predicted in synthesis.
+- Empty DB → state limitation; do not fabricate.

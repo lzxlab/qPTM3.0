@@ -21,9 +21,9 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://opencode.ai/zen/go/v1"
     deepseek_zen_base_url: str = "https://opencode.ai/zen/v1"
-    deepseek_model: str = "deepseek-v4-flash"
+    deepseek_model: str = "deepseek-flash"
     # Comma-separated bare model ids tried after DEEPSEEK_MODEL on failure
-    deepseek_fallback_models: str = "glm-5.2,deepseek-v4-pro"
+    deepseek_fallback_models: str = "deepseek-v4-flash,glm-5.2,deepseek-v4-pro"
 
     # qPTM REST API (PHP backend — deployed at /api/ on the qPTM web server)
     qptm_api_base_url: str = "https://qptm3.omicsbio.info/api"
@@ -95,6 +95,7 @@ class Settings(BaseSettings):
     collection_model: str = ""
     # Comma-separated pi-ai provider/model ids tried after COLLECTION_MODEL
     collection_fallback_models: str = (
+        "opencode-go/deepseek-v4-flash,"
         "opencode-go/glm-5.2,"
         "opencode-go/deepseek-v4-pro"
     )

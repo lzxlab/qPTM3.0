@@ -31,6 +31,7 @@ _ZEN_ONLY_MODELS = frozenset(
 # Prefer Go when the model is on both (cheaper subscription path).
 _GO_PREFERRED_MODELS = frozenset(
     {
+        "deepseek-flash",
         "deepseek-v4-flash",
         "deepseek-v4-pro",
         "kimi-k3",
@@ -57,6 +58,7 @@ _GO_PREFERRED_MODELS = frozenset(
 )
 
 DEFAULT_FALLBACK_MODELS = (
+    "deepseek-v4-flash",
     "glm-5.2",
     "deepseek-v4-pro",
 )

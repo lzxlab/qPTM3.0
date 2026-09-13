@@ -6,21 +6,43 @@ let qptmClient = null;
 let biomcpClient = null;
 let qptmInitPromise = null;
 let biomcpInitPromise = null;
+let cachedMcpTools = null;
+/** In-flight stdio transport — closed on connect timeout to avoid orphan processes. */
+let pendingQptmTransport = null;
 const MCP_CONNECT_TIMEOUT_MS = Number(process.env.MCP_CONNECT_TIMEOUT_MS || 15000);
-async function connectStdio(name, command, args, cwd) {
+const MCP_CALL_TIMEOUT_MS = Number(process.env.MCP_CALL_TIMEOUT_MS || 120000);
+async function killTransport(transport) {
+    if (!transport)
+        return;
     try {
-        const transport = new StdioClientTransport({
+        await transport.close();
+    }
+    catch {
+        /* ignore */
+    }
+}
+async function connectStdio(name, command, args, cwd) {
+    let transport = null;
+    try {
+        transport = new StdioClientTransport({
             command,
             args,
             cwd,
             stderr: "pipe",
         });
-        const client = new Client({ name: `qptm-agent-${name}`, version: "1.0.0" });
+        if (name === "qptm")
+            pendingQptmTransport = transport;
+        const client = new Client({ name: `qptm-agent-${name}`, version: "2.0.0" });
         await client.connect(transport);
+        if (name === "qptm")
+            pendingQptmTransport = null;
         console.log(`MCP ${name} connected (${command} ${args.join(" ")})`);
         return { name, client, transport };
     }
     catch (e) {
+        if (name === "qptm")
+            pendingQptmTransport = null;
+        await killTransport(transport);
         console.warn(`MCP ${name} connect failed:`, e);
         return null;
     }
@@ -28,9 +50,10 @@ async function connectStdio(name, command, args, cwd) {
 async function connectStdioWithTimeout(name, command, args, cwd) {
     let timer;
     let timedOut = false;
+    const connectPromise = connectStdio(name, command, args, cwd);
     try {
         const result = await Promise.race([
-            connectStdio(name, command, args, cwd),
+            connectPromise,
             new Promise((resolve) => {
                 timer = setTimeout(() => {
                     timedOut = true;
@@ -39,9 +62,14 @@ async function connectStdioWithTimeout(name, command, args, cwd) {
                 }, MCP_CONNECT_TIMEOUT_MS);
             }),
         ]);
-        if (timedOut && result) {
-            // Late success after timeout — still use it.
-            return result;
+        if (timedOut) {
+            await killTransport(pendingQptmTransport);
+            pendingQptmTransport = null;
+            connectPromise.then((late) => {
+                if (late)
+                    void killTransport(late.transport);
+            });
+            return null;
         }
         return result;
     }
@@ -59,7 +87,6 @@ export async function initQptmMcp() {
     qptmInitPromise = (async () => {
         qptmClient = await connectStdioWithTimeout("qptm", cfg.qptmMcpCommand, cfg.qptmMcpArgs, cfg.qptmMcpCwd);
         if (!qptmClient) {
-            // Allow a later request to retry instead of caching permanent failure.
             qptmInitPromise = null;
         }
     })();
@@ -82,6 +109,50 @@ export async function initMcpClients() {
 async function ensureQptmMcp() {
     await initQptmMcp();
 }
+export function qptmMcpConnected() {
+    return qptmClient != null;
+}
+export async function pingQptmMcp() {
+    await ensureQptmMcp();
+    if (!qptmClient)
+        return false;
+    try {
+        await qptmClient.client.listTools();
+        return true;
+    }
+    catch {
+        await resetQptmMcpClient();
+        return false;
+    }
+}
+async function resetQptmMcpClient() {
+    if (qptmClient) {
+        await killTransport(qptmClient.transport);
+        qptmClient = null;
+    }
+    cachedMcpTools = null;
+    qptmInitPromise = null;
+}
+export async function listMcpTools() {
+    await ensureQptmMcp();
+    if (!qptmClient)
+        return [];
+    if (cachedMcpTools)
+        return cachedMcpTools;
+    try {
+        const res = await qptmClient.client.listTools();
+        cachedMcpTools = (res.tools || []).map((t) => ({
+            name: t.name,
+            description: t.description,
+            inputSchema: t.inputSchema,
+        }));
+        return cachedMcpTools;
+    }
+    catch {
+        await resetQptmMcpClient();
+        return [];
+    }
+}
 async function ensureBiomcpMcp() {
     return initBiomcpMcp();
 }
@@ -99,6 +170,14 @@ export async function readQptmResource(uri) {
         return "";
     }
 }
+function parseToolPayload(text) {
+    try {
+        return JSON.parse(text);
+    }
+    catch {
+        return { raw: text };
+    }
+}
 export async function callQptmTool(toolName, args) {
     await ensureQptmMcp();
     if (!qptmClient) {
@@ -110,19 +189,18 @@ export async function callQptmTool(toolName, args) {
         };
     }
     try {
-        const result = await qptmClient.client.callTool({ name: toolName, arguments: args });
+        const result = await Promise.race([
+            qptmClient.client.callTool({ name: toolName, arguments: args }),
+            new Promise((_, reject) => {
+                setTimeout(() => reject(new Error(`MCP callTool timeout after ${MCP_CALL_TIMEOUT_MS}ms`)), MCP_CALL_TIMEOUT_MS);
+            }),
+        ]);
         const content = (result.content || []);
         const text = content
             .map((c) => c.text || "")
             .filter(Boolean)
             .join("\n");
-        let parsed = {};
-        try {
-            parsed = JSON.parse(text);
-        }
-        catch {
-            parsed = { raw: text };
-        }
+        const parsed = parseToolPayload(text);
         const payloadSuccess = parsed.success;
         const success = !result.isError && (payloadSuccess === undefined ? true : payloadSuccess !== false);
         const dataObj = parsed.data && typeof parsed.data === "object"
@@ -130,10 +208,22 @@ export async function callQptmTool(toolName, args) {
             : null;
         const resolved = parsed.resolved ||
             (dataObj && (dataObj.uniprot_ac || dataObj.gene) ? dataObj : null);
+        const blocks = Array.isArray(parsed.blocks) ? parsed.blocks : undefined;
+        const blockSummary = blocks?.length
+            ? blocks
+                .map((b) => {
+                const row = b;
+                return `[${row.source_name || row.tool}] ${row.summary || ""}`;
+            })
+                .join(" | ")
+                .slice(0, 600)
+            : "";
         return {
             success,
-            summary: String(parsed.summary || text.slice(0, 400)),
+            summary: String(parsed.summary || blockSummary || text.slice(0, 400)),
             data: parsed.data ?? parsed,
+            blocks,
+            intent: typeof parsed.intent === "string" ? parsed.intent : undefined,
             error_kind: parsed.error_kind ?? (success ? null : "tool_error"),
             missing: Array.isArray(parsed.missing) ? parsed.missing : [],
             resolved,
@@ -178,21 +268,19 @@ export async function biomcpGetArticle(id) {
 }
 /**
  * Literature search with a reliable fallback: BioMCP is often unavailable on this host.
- * Prefer qPTM's PubTator tool via MCP, then BioMCP/Tavily-less CLI.
+ * Prefer qPTM MCP search_literature intent tool.
  */
 export async function searchLiteratureArticles(query) {
     const q = (query || "").trim();
     if (!q)
         return "";
-    const viaPubtator = await callQptmTool("qptm_invoke", {
-        tool_name: "pubtator_literature_search",
-        arguments_json: JSON.stringify({ query: q, limit: 8 }),
-    });
+    const viaPubtator = await callQptmTool("search_literature", { query: q, limit: 8 });
     if (viaPubtator.success || viaPubtator.summary) {
         const dataStr = typeof viaPubtator.data === "string"
             ? viaPubtator.data
             : JSON.stringify(viaPubtator.data ?? {});
-        const combined = `${viaPubtator.summary || ""}\n${dataStr}`;
+        const blockStr = viaPubtator.blocks ? JSON.stringify(viaPubtator.blocks) : "";
+        const combined = `${viaPubtator.summary || ""}\n${blockStr}\n${dataStr}`;
         if (/PMID/i.test(combined) || /publication/i.test(viaPubtator.summary || "")) {
             return combined.slice(0, 8000);
         }

@@ -25,7 +25,7 @@ export const cfg = {
   deepseekApiKey: process.env.DEEPSEEK_API_KEY || "",
   deepseekBaseUrl: (process.env.DEEPSEEK_BASE_URL || "https://opencode.ai/zen/go/v1").replace(/\/$/, ""),
   deepseekZenBaseUrl: (process.env.DEEPSEEK_ZEN_BASE_URL || "https://opencode.ai/zen/v1").replace(/\/$/, ""),
-  deepseekModel: process.env.DEEPSEEK_MODEL || "deepseek-v4-flash",
+  deepseekModel: process.env.DEEPSEEK_MODEL || "deepseek-flash",
   deepseekFallbackModels: splitCsv(process.env.DEEPSEEK_FALLBACK_MODELS),
   conversationsDataDir: resolve(
     __dirname,
@@ -49,5 +49,7 @@ export const cfg = {
   skillsDir: resolve(__dirname, "..", process.env.SKILLS_DIR || "../skills"),
   qaMaxRounds: 3,
   drMaxPlanSteps: 12,
+  drSupervisorMaxRounds: Number(process.env.DR_SUPERVISOR_MAX_ROUNDS || 6),
   corsOrigins: splitCsv(process.env.CORS_ORIGINS || "*"),
+  backendBaseUrl: (process.env.AGENT_BACKEND_URL || "http://127.0.0.1:8100").replace(/\/$/, ""),
 };

@@ -16,6 +16,26 @@ function looksLikeAgentAskingUser(text: string): boolean {
     || /\b(would you like me|do you want me|shall I|did you mean)\b/i.test(text);
 }
 
+/** Concept / refuse / greeting — chips that land on concrete PTM site questions. */
+export function ptmSteerFollowUps(lang: "zh" | "en"): FollowUpQuestion[] {
+  if (lang === "zh") {
+    return [
+      { text: "哪些激酶磷酸化 AKT1 S473？", intent: "qa" },
+      { text: "TP53 S15 在 DNA 损伤后如何被磷酸化？", intent: "qa" },
+      { text: "EGFR Y1068 磷酸化与哪些药物有关？", intent: "qa" },
+      { text: "STAT3 Y705 在癌症信号中如何被调控？", intent: "qa" },
+      { text: "MDM2 S166 乙酰化受哪些条件影响？", intent: "qa" },
+    ];
+  }
+  return [
+    { text: "Which kinases phosphorylate AKT1 S473?", intent: "qa" },
+    { text: "How is TP53 S15 phosphorylated after DNA damage?", intent: "qa" },
+    { text: "What drugs affect EGFR Y1068 phosphorylation?", intent: "qa" },
+    { text: "How is STAT3 Y705 regulated in cancer signaling?", intent: "qa" },
+    { text: "Which conditions regulate MDM2 S166 acetylation?", intent: "qa" },
+  ];
+}
+
 export async function generateFollowUps(
   question: string,
   answer: string,
@@ -25,6 +45,7 @@ export async function generateFollowUps(
   toolsUsed: string[],
 ): Promise<FollowUpQuestion[]> {
   const lang = detectLang(question);
+  if (memory.query_mode === "concept") return ptmSteerFollowUps(lang);
   const artifactCatalog = artifacts.catalogForPrompt(8);
   const toolsLine = toolsUsed.length ? toolsUsed.join(", ") : "none";
 
@@ -147,30 +168,18 @@ function fallbackFollowUps(
     const qa: FollowUpQuestion[] = [
       { text: `${site} 在哪些实验条件下被修饰？`, intent: "qa" },
       { text: `哪些激酶可能磷酸化 ${site}？`, intent: "qa" },
-      {
-        text: `对 ${site} 做全面深度调研（激酶、定量、功能疾病）`,
-        intent: "deep_research",
-      },
-      {
-        text: `综合数据库与文献，深度解析 ${site} 的调控机制`,
-        intent: "deep_research",
-      },
+      { text: `对 ${site} 做全面调研（激酶、定量、功能疾病）`, intent: "deep_research" },
       { text: `${site} 与疾病或药物调控有何关联？`, intent: "qa" },
+      { text: "哪些激酶磷酸化 AKT1 S473？", intent: "qa" },
     ];
-    return mode === "deep_research" ? qa.map((q) => ({ ...q, intent: "qa" })) : qa;
+    return qa;
   }
   const qa: FollowUpQuestion[] = [
     { text: `Under which conditions is ${site} modified?`, intent: "qa" },
     { text: `Which kinases may phosphorylate ${site}?`, intent: "qa" },
-    {
-      text: `Run deep research on ${site} (kinases, quantitation, function/disease)`,
-      intent: "deep_research",
-    },
-    {
-      text: `Deep dive: integrate databases and literature for ${site} regulation`,
-      intent: "deep_research",
-    },
+    { text: `Investigate ${site} (kinases, quantitation, function/disease)`, intent: "deep_research" },
     { text: `What disease or drug links exist for ${site}?`, intent: "qa" },
+    { text: "Which kinases phosphorylate AKT1 S473?", intent: "qa" },
   ];
-  return mode === "deep_research" ? qa.map((q) => ({ ...q, intent: "qa" })) : qa;
+  return qa;
 }

@@ -57,8 +57,11 @@ export class ArtifactStore {
     return this.artifacts.filter((a) => a.kind === "db_result");
   }
 
-  catalogForPrompt(max = 20): string {
-    const items = this.artifacts.slice(-max);
+    catalogForPrompt(max = 20, opts: { skipEmpty?: boolean } = {}): string {
+    let items = this.artifacts.slice(-max);
+    if (opts.skipEmpty) {
+      items = items.filter((a) => !/\[empty_result\]/i.test(a.summary));
+    }
     if (!items.length) return "(no artifacts yet)";
     return items
       .map(
@@ -66,6 +69,18 @@ export class ArtifactStore {
           `[${a.id}] ${a.kind}: ${a.query.slice(0, 120)} → ${a.summary.slice(0, 200)}${a.pmids?.length ? ` (PMIDs: ${a.pmids.slice(0, 5).join(",")})` : ""}`,
       )
       .join("\n");
+  }
+
+  load(list: Artifact[]): void {
+    this.artifacts = Array.isArray(list) ? list.map((a) => ({ ...a })) : [];
+    this.counter = this.artifacts.reduce((max, a) => {
+      const n = Number(String(a.id || "").replace(/^a/i, ""));
+      return Number.isFinite(n) ? Math.max(max, n) : max;
+    }, 0);
+  }
+
+  toJSON(): Artifact[] {
+    return this.list();
   }
 
   clear(): void {

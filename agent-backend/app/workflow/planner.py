@@ -1,10 +1,7 @@
-"""Planning layer — route user questions to databases/tools before LLM execution.
+"""Planning helpers still used by MCP ``qptm_invoke`` (argument inference).
 
-Architecture:
-  1. Parse entities (gene, site, PTM type) from the question
-  2. Classify research intent (which workflow stages are needed)
-  3. Select databases and tools deterministically (not left to the LLM)
-  4. Build a step1 / step2 / step3 research plan for the Agent executor
+Chat ReAct / HTTP planning lives in agent-runtime. Do not add a second agent
+loop here. Live MCP entry points: ``infer_tool_arguments``, ``parse_query_entities``.
 """
 
 from __future__ import annotations

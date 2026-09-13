@@ -66,15 +66,7 @@ def test_classify_collection_intent():
     assert mode_upload == QUERY_MODE_COLLECTION
 
 
-def test_classify_endpoint():
-    res = client.post(
-        "/classify",
-        json={"message": "Collect quantitative tables from PMID 39732660"},
-    )
-    assert res.status_code == 200
-    body = res.json()
-    assert body["mode"] == "collection"
-    assert body["route_collection"] is True
+def test_collection_jobs_need_pmid():
     res = client.post("/collection/jobs", data={"message": "hello"})
     assert res.status_code == 200
     body = res.json()

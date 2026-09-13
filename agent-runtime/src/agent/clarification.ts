@@ -37,8 +37,138 @@ function opt(label: string, description = ""): ClarificationOption {
   return { label, description };
 }
 
-/** Minimal fallback only when LLM fails — still question-shaped, not a fixed WHO/WHEN template. */
-function fallbackClarification(message: string, memory: InvestigationMemory): ClarificationPayload {
+/** User wants to discover/rank sites — do not ask for a residue number. */
+function isSiteDiscoveryIntent(message: string): boolean {
+  return /哪些位点|哪些磷酸化位点|值得研究.{0,8}位点|位点.{0,8}值得研究|研究得[比多].{0,8}位点|位点.{0,8}研究得|热点位点|hotspots?|which sites|sites worth|worth studying|most[- ]studied sites|research(ed)? (a lot|most).{0,20}sites?/i.test(
+    message,
+  );
+}
+
+/** Question is about one specific residue (kinase/regulation/function of that site). */
+function isSingleSiteMechanismIntent(message: string): boolean {
+  if (isSiteDiscoveryIntent(message)) return false;
+  return /哪个激酶|哪些上游激酶|上游激酶|激酶修饰|修饰了|该位点|这个位点|这个残基|which kinase|upstream kinase|phosphorylat/i.test(
+    message,
+  );
+}
+
+function hasGene(memory: InvestigationMemory): boolean {
+  return Boolean(memory.gene || memory.uniprot_ac);
+}
+
+/** No protein identity and the question needs a specific site — empty-DB investigation is useless. */
+export function cannotInvestigateSiteLevel(
+  memory: Pick<InvestigationMemory, "gene" | "uniprot_ac">,
+  message: string,
+): boolean {
+  return !memory.gene && !memory.uniprot_ac && isSingleSiteMechanismIntent(message);
+}
+
+function hasSite(memory: InvestigationMemory): boolean {
+  return Boolean(memory.position);
+}
+
+function fallbackFreeText(lang: "zh" | "en"): { label: string; placeholder: string } {
+  return lang === "zh"
+    ? { label: "补充说明（可选）", placeholder: "物种/细胞系、比较条件、疾病背景等" }
+    : { label: "Additional context (optional)", placeholder: "Organism/cell line, comparison, disease background…" };
+}
+
+function fallbackGeneClarification(lang: "zh" | "en"): ClarificationPayload {
+  if (lang === "zh") {
+    return {
+      needs_clarification: true,
+      intro: "需要先确定研究的蛋白，才能继续深度调研（可跳过）：",
+      fields: [
+        {
+          id: "gene",
+          label: "请指定蛋白 / 基因",
+          prompt: "可只填基因名，位点级问题也可写成「AKT1 S473」。",
+          options: [
+            opt("TP53", "肿瘤抑制蛋白，常用研究靶点"),
+            opt("AKT1", "常见磷酸化研究靶点"),
+            opt("EGFR", "受体酪氨酸激酶"),
+          ],
+          allow_custom: true,
+          placeholder: "例如 AKT1 或 AKT1 S473",
+        },
+      ],
+      free_text: fallbackFreeText("zh"),
+      submit_label: "开始深度调研",
+      skip_label: "跳过，直接调研",
+    };
+  }
+  return {
+    needs_clarification: true,
+    intro: "Please specify the protein before deep research (optional — you can skip):",
+    fields: [
+      {
+        id: "gene",
+        label: "Which protein / gene?",
+        prompt: "Gene name is enough; for a site-level question you can type “AKT1 S473”.",
+        options: [
+          opt("TP53", "Common tumor-suppressor research target"),
+          opt("AKT1", "Common phosphorylation research target"),
+          opt("EGFR", "Receptor tyrosine kinase"),
+        ],
+        allow_custom: true,
+        placeholder: "e.g. AKT1 or AKT1 S473",
+      },
+    ],
+    free_text: fallbackFreeText("en"),
+    submit_label: "Start deep research",
+    skip_label: "Skip and research",
+  };
+}
+
+function fallbackSiteClarification(memory: InvestigationMemory, lang: "zh" | "en"): ClarificationPayload {
+  const gene = memory.gene || "该蛋白";
+  if (lang === "zh") {
+    return {
+      needs_clarification: true,
+      intro: `「${gene}」的位点级问题需要先确定残基（可跳过）：`,
+      fields: [
+        {
+          id: "site",
+          label: "请指定修饰位点",
+          prompt: "填写残基编号，例如 S473；物种不同位点可能不同。",
+          options: [
+            opt("我来指定残基", "在下方输入如 S473、S15"),
+            opt("先按文献最常见位点调研", "不确定编号时可用"),
+          ],
+          allow_custom: true,
+          placeholder: "例如 S473",
+        },
+      ],
+      free_text: fallbackFreeText("zh"),
+      submit_label: "开始深度调研",
+      skip_label: "跳过，直接调研",
+    };
+  }
+  return {
+    needs_clarification: true,
+    intro: `A site-level question about ${memory.gene || "this protein"} needs a residue (optional — you can skip):`,
+    fields: [
+      {
+        id: "site",
+        label: "Which modification site?",
+        prompt: "Residue number such as S473; numbering can differ by species.",
+        options: [
+          opt("I’ll specify the residue", "Type e.g. S473 or S15 below"),
+          opt("Use the most-studied site for now", "If you don’t know the number"),
+        ],
+        allow_custom: true,
+        placeholder: "e.g. S473",
+      },
+    ],
+    free_text: fallbackFreeText("en"),
+    submit_label: "Start deep research",
+    skip_label: "Skip and research",
+  };
+}
+
+/** Existing four-dimension priority card — used when a residue is not required. */
+function fallbackPriorityClarification(message: string, memory: InvestigationMemory): ClarificationPayload {
   const lang = detectLang(message);
   const target = [memory.gene, memory.position ? `S${memory.position}` : "", memory.ptm_type]
     .filter(Boolean)
@@ -65,10 +195,7 @@ function fallbackClarification(message: string, memory: InvestigationMemory): Cl
           placeholder: "也可直接写你的目标…",
         },
       ],
-      free_text: {
-        label: "补充说明（可选）",
-        placeholder: "物种/细胞系、比较条件、疾病背景等",
-      },
+      free_text: fallbackFreeText("zh"),
       submit_label: "开始深度调研",
       skip_label: "跳过，直接调研",
     };
@@ -92,13 +219,26 @@ function fallbackClarification(message: string, memory: InvestigationMemory): Cl
         placeholder: "Or type your goal…",
       },
     ],
-    free_text: {
-      label: "Additional context (optional)",
-      placeholder: "Organism/cell line, comparison, disease background…",
-    },
+    free_text: fallbackFreeText("en"),
     submit_label: "Start deep research",
     skip_label: "Skip and research",
   };
+}
+
+/**
+ * Fallback when LLM clarification fails. Ask gene/site only if the question
+ * needs a specific target that is missing — never treat missing position as
+ * an automatic site question (site-discovery / protein-level must not ask residue).
+ */
+function fallbackClarification(message: string, memory: InvestigationMemory): ClarificationPayload {
+  const lang = detectLang(message);
+  if (!hasGene(memory)) {
+    return fallbackGeneClarification(lang);
+  }
+  if (!hasSite(memory) && isSingleSiteMechanismIntent(message) && !isSiteDiscoveryIntent(message)) {
+    return fallbackSiteClarification(memory, lang);
+  }
+  return fallbackPriorityClarification(message, memory);
 }
 
 function normalizeOption(raw: unknown): ClarificationOption | null {
@@ -113,8 +253,9 @@ function normalizeOption(raw: unknown): ClarificationOption | null {
   };
 }
 
-function normalizePayload(raw: unknown, message: string, memory: InvestigationMemory): ClarificationPayload {
-  if (!raw || typeof raw !== "object") return fallbackClarification(message, memory);
+/** Valid LLM payload, or null if JSON/fields were unusable (caller may retry). */
+function normalizePayload(raw: unknown, message: string): ClarificationPayload | null {
+  if (!raw || typeof raw !== "object") return null;
   const data = raw as Record<string, unknown>;
 
   if (data.needs_clarification === false) {
@@ -145,7 +286,7 @@ function normalizePayload(raw: unknown, message: string, memory: InvestigationMe
     });
   }
 
-  if (!fields.length) return fallbackClarification(message, memory);
+  if (!fields.length) return null;
 
   const free = (data.free_text && typeof data.free_text === "object"
     ? (data.free_text as Record<string, unknown>)
@@ -180,6 +321,84 @@ export interface ClarifyRoundOpts {
   maxRounds?: number;
 }
 
+const CLARIFY_MAX_ATTEMPTS = 3;
+
+function clarificationSystemPrompt(lang: "zh" | "en", round: number, maxRounds: number): string {
+  if (lang === "zh") {
+    return `你是 qPTM 深度调研助手。根据用户问题的语义判断：是否还需要澄清，以及该问什么。
+规则：
+1. 允许多轮澄清。已完成 ${round}/${maxRounds} 轮。只问仍然不明确且对本次调研关键的点；不要重复已回答内容。
+2. 先判断意图，不要用「基因和残基必须同时有」当门槛：
+   - 位点级：针对某一个残基问激酶/条件/功能（如「哪个激酶修饰了」「AKT1 上游激酶」）。靶点不明时：缺基因问 id=gene，缺残基问 id=site；本轮不要问上游/条件/功能/文献等调研维度。
+   - 位点发现或蛋白级：要找哪些位点、热点、值得研究的位置（如「TP53 有什么值得研究的位点」）。即使没有 position，也不要问具体残基；可问调研侧重点，或 needs_clarification=false 直接去广搜位点。
+   - 无基因且问题明显针对某个蛋白时，才问 gene。
+3. 示例：
+   - 「哪个激酶修饰了」→ 问蛋白+位点（位点级、靶点全缺）
+   - 「AKT1 有哪些上游激酶」→ 问位点（位点级、有基因无残基）
+   - 「TP53 有什么值得研究 / 研究比较多的位点」→ 不问残基；可直接调研或问侧重点
+   - 「AKT1 S473 肿瘤调控」→ 可问 priority 或 needs_clarification=false
+4. 不要套固定 WHO/WHEN/WHERE/WHY 模板；每次 1–3 个字段，每字段 2–5 个贴合选项（含简短 description）。
+5. 信息够用就 needs_clarification=false；不要为凑问题而问。
+6. 字段 id 用英文 snake_case；文案用中文。只输出 JSON，不要 markdown。
+
+JSON 格式：
+{
+  "needs_clarification": true|false,
+  "intro": "简短说明",
+  "fields": [
+    {
+      "id": "gene|site|priority",
+      "label": "标题",
+      "prompt": "一句问句",
+      "options": [{"label":"...","description":"..."}],
+      "allow_custom": true,
+      "placeholder": "其他…"
+    }
+  ],
+  "free_text": {"label":"补充说明（可选）","placeholder":"..."},
+  "submit_label": "开始深度调研",
+  "skip_label": "跳过，直接调研"
+}`;
+  }
+  return `You are the qPTM deep-research assistant. Decide from the user's intent whether clarification is needed and what to ask.
+Rules:
+1. Multi-round clarification is allowed. Completed ${round}/${maxRounds} rounds. Ask ONLY what is still ambiguous and material; do not re-ask answered points.
+2. Judge intent — do NOT require gene AND residue as a hard gate:
+   - Site-level: one residue (kinase/conditions/function), e.g. "which kinase modifies this", "AKT1 upstream kinases". If the target is unspecified: ask id=gene if the protein is missing, id=site if the residue is missing; do not ask research-dimension priorities this round.
+   - Site-discovery / protein-level: which sites, hotspots, sites worth studying (e.g. "which TP53 sites are worth studying"). Even without a position, do NOT ask for a residue; ask a research priority or return needs_clarification=false.
+   - Ask gene only when the protein is unspecified and the question is clearly about a protein.
+3. Examples:
+   - "which kinase modified it" → ask protein+site
+   - "AKT1 upstream kinases" → ask residue
+   - "which TP53 sites are worth studying" → do not ask residue
+   - "AKT1 S473 tumor regulation" → priority or needs_clarification=false
+4. No WHO/WHEN/WHERE/WHY template; 1–3 fields, 2–5 tailored options each.
+5. If information is sufficient, return needs_clarification=false. Do not invent questions.
+6. Field ids snake_case. Output JSON only.
+
+JSON schema:
+{
+  "needs_clarification": true|false,
+  "intro": "...",
+  "fields": [{"id":"gene|site|priority","label":"...","prompt":"...","options":[{"label":"...","description":"..."}],"allow_custom":true,"placeholder":"..."}],
+  "free_text": {"label":"...","placeholder":"..."},
+  "submit_label": "Start deep research",
+  "skip_label": "Skip and research"
+}`;
+}
+
+function clarificationRetryHint(lang: "zh" | "en"): string {
+  if (lang === "zh") {
+    return `上次输出无效或 fields 为空。请只输出合法 JSON。
+按用户问题需要来问：蛋白未指定时问 gene；仅当问题针对某一个位点时才问残基。
+用户要发现/比较/排名位点时，不要问具体残基编号。`;
+  }
+  return `Previous output was invalid or empty fields. Output valid JSON only.
+Ask only what the user question still needs: gene if the protein is unspecified;
+a residue only if the question is about one specific site.
+Never ask for a residue when the user wants to find/rank sites.`;
+}
+
 /**
  * Agent-generated clarification: judge what is still ambiguous,
  * then propose 1–3 targeted questions — may run across multiple rounds.
@@ -193,78 +412,39 @@ export async function buildDeepResearchClarification(
   const lang = detectLang(message);
   const round = roundOpts.round ?? 0;
   const maxRounds = roundOpts.maxRounds ?? 4;
-
-  const system =
-    lang === "zh"
-      ? `你是 qPTM 深度调研助手。请判断：以当前信息，是否还需要向用户澄清后才能做更精准的调研。
-规则：
-1. 允许多轮澄清。已完成 ${round}/${maxRounds} 轮。只问**仍然不明确且对本次调研关键**的点；不要重复用户已回答过的内容。
-2. 不要套固定 WHO/WHEN/WHERE/WHY 模板；每次 1–3 个字段，每字段 2–5 个贴合选项（含简短 description）。
-3. 若蛋白/基因已知但无具体残基编号，且目标是位点级（调控网络、上游激酶、功能等），应问 id=site，选项写清残基（如「S18（小鼠）/ S15（人）」）。若用户只选了「单个位点」却没给编号，下一轮应追问具体位点。
-4. 信息已足够，或用户已明确可先按假设推进时，返回 needs_clarification=false（调研阶段仍可在报告里标注假设或再提问）。
-5. 不要为了凑问题而提问；不关键就跳过。
-6. 字段 id 用英文 snake_case；文案用中文。只输出 JSON，不要 markdown。
-
-JSON 格式：
-{
-  "needs_clarification": true|false,
-  "intro": "简短说明",
-  "fields": [
-    {
-      "id": "priority",
-      "label": "标题",
-      "prompt": "一句问句",
-      "options": [{"label":"...","description":"..."}],
-      "allow_custom": true,
-      "placeholder": "其他…"
-    }
-  ],
-  "free_text": {"label":"补充说明（可选）","placeholder":"..."},
-  "submit_label": "开始深度调研",
-  "skip_label": "跳过，直接调研"
-}`
-      : `You are the qPTM deep-research assistant. Decide whether more clarification is still needed.
-Rules:
-1. Multi-round clarification is allowed. Completed ${round}/${maxRounds} rounds. Ask ONLY what is still ambiguous and material; do not re-ask answered points.
-2. No fixed WHO/WHEN/WHERE/WHY template; 1–3 fields, 2–5 tailored options each.
-3. If gene/protein is known but residue is missing for a site-level goal, ask id=site with concrete residues. If the user chose “single site” without a number, follow up on the residue.
-4. If information is sufficient (or the user can proceed under a stated assumption), return needs_clarification=false.
-5. Do not invent questions. Output JSON only.
-
-JSON schema:
-{
-  "needs_clarification": true|false,
-  "intro": "...",
-  "fields": [{"id":"...","label":"...","prompt":"...","options":[{"label":"...","description":"..."}],"allow_custom":true,"placeholder":"..."}],
-  "free_text": {"label":"...","placeholder":"..."},
-  "submit_label": "Start deep research",
-  "skip_label": "Skip and research"
-}`;
-
+  const system = clarificationSystemPrompt(lang, round, maxRounds);
   const user = [
     `User question / accumulated context:\n${message}`,
     memoryPromptBlock(mem),
     `Parsed entities: gene=${mem.gene || ""} position=${mem.position || ""} ptm=${mem.ptm_type || ""} organism=${mem.organism || ""}`,
+    `Decide from the user question whether a specific residue is required.`,
+    `Do not ask for a site if the user wants to discover or rank sites on a gene.`,
     `Clarification round: ${round} (0=first ask). Max rounds: ${maxRounds}.`,
   ].join("\n");
 
-  try {
-    const llm = getLlm();
-    const { content } = await llm.chatCompletion(
-      [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      { maxTokens: 1200, temperature: 0.3 },
-    );
-    const text = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-    const parsed = JSON.parse(text) as unknown;
-    return normalizePayload(parsed, message, mem);
-  } catch {
-    // On follow-up rounds, fail open (start research) rather than forcing a generic card again.
-    if (round > 0) return { needs_clarification: false };
-    return fallbackClarification(message, mem);
+  const llm = getLlm();
+  for (let attempt = 1; attempt <= CLARIFY_MAX_ATTEMPTS; attempt++) {
+    try {
+      const userContent =
+        attempt === 1 ? user : `${user}\n\n${clarificationRetryHint(lang)}`;
+      const { content } = await llm.chatCompletion(
+        [
+          { role: "system", content: system },
+          { role: "user", content: userContent },
+        ],
+        { maxTokens: 1200, temperature: 0.2 },
+      );
+      const text = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      const parsed = JSON.parse(text) as unknown;
+      const payload = normalizePayload(parsed, message);
+      if (payload) return payload;
+    } catch {
+      /* retry */
+    }
   }
+
+  if (round > 0) return { needs_clarification: false };
+  return fallbackClarification(message, mem);
 }
 
 export function mergeClarification(

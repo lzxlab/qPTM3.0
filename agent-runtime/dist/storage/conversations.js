@@ -27,6 +27,11 @@ export function initConversationsDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, id ASC);
     CREATE INDEX IF NOT EXISTS idx_conv_device_updated ON conversations(device_id, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS conversation_state (
+      conversation_id TEXT PRIMARY KEY,
+      state_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 }
 function getDb() {
@@ -75,7 +80,38 @@ export function deleteConversation(conversationId, deviceId) {
     const res = getDb()
         .prepare("DELETE FROM conversations WHERE id = ? AND device_id = ?")
         .run(conversationId, deviceId);
-    return Number(res.changes) > 0;
+    if (Number(res.changes) > 0) {
+        getDb().prepare("DELETE FROM conversation_state WHERE conversation_id = ?").run(conversationId);
+        return true;
+    }
+    return false;
+}
+export function saveConversationState(conversationId, state) {
+    if (!conversationId)
+        return;
+    getDb()
+        .prepare("INSERT INTO conversation_state (conversation_id, state_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(conversation_id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at")
+        .run(conversationId, JSON.stringify(state), utcNow());
+}
+export function loadConversationState(conversationId) {
+    if (!conversationId)
+        return null;
+    const row = getDb()
+        .prepare("SELECT state_json FROM conversation_state WHERE conversation_id = ?")
+        .get(conversationId);
+    if (!row?.state_json)
+        return null;
+    try {
+        return JSON.parse(row.state_json);
+    }
+    catch {
+        return null;
+    }
+}
+export function clearConversationState(conversationId) {
+    if (!conversationId)
+        return;
+    getDb().prepare("DELETE FROM conversation_state WHERE conversation_id = ?").run(conversationId);
 }
 export function addMessage(conversationId, role, content, meta) {
     const now = utcNow();

@@ -24,5 +24,7 @@ export declare const cfg: {
     skillsDir: string;
     qaMaxRounds: number;
     drMaxPlanSteps: number;
+    drSupervisorMaxRounds: number;
     corsOrigins: string[];
+    backendBaseUrl: string;
 };

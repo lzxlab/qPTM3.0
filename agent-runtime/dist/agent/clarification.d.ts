@@ -24,6 +24,8 @@ export interface ClarificationPayload {
     submit_label?: string;
     skip_label?: string;
 }
+/** No protein identity and the question needs a specific site — empty-DB investigation is useless. */
+export declare function cannotInvestigateSiteLevel(memory: Pick<InvestigationMemory, "gene" | "uniprot_ac">, message: string): boolean;
 export interface ClarifyRoundOpts {
     /** Completed clarification rounds so far (0 = first ask). */
     round?: number;
