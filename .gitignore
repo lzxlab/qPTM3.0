@@ -143,6 +143,7 @@ resource/properties/human.parquet
 resource/properties/properties.sqlite
 resource/annotation/
 sendemail.php
+download_qPTM3_list.txt
 
 # Website files (kept locally, not tracked in repo)
 resource/
