@@ -39,7 +39,7 @@ The agent classifies each question and chooses the path (the UI no longer toggle
 ## MCP
 
 - **qPTM MCP**: `agent-backend/mcp_stdio_server.py` (stdio, wraps existing Python tools)
-- **BioMCP**: optional `biomcp serve` if installed; falls back to CLI
+- **Web search**: Tavily (`TAVILY_API_KEY`); no BioMCP fallback
 
 ## Apache cutover
 

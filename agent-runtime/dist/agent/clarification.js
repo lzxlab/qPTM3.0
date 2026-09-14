@@ -261,42 +261,9 @@ function normalizePayload(raw, message) {
 }
 const CLARIFY_MAX_ATTEMPTS = 3;
 function clarificationSystemPrompt(lang, round, maxRounds) {
-    if (lang === "zh") {
-        return `你是 qPTM 深度调研助手。根据用户问题的语义判断：是否还需要澄清，以及该问什么。
-规则：
-1. 允许多轮澄清。已完成 ${round}/${maxRounds} 轮。只问仍然不明确且对本次调研关键的点；不要重复已回答内容。
-2. 先判断意图，不要用「基因和残基必须同时有」当门槛：
-   - 位点级：针对某一个残基问激酶/条件/功能（如「哪个激酶修饰了」「AKT1 上游激酶」）。靶点不明时：缺基因问 id=gene，缺残基问 id=site；本轮不要问上游/条件/功能/文献等调研维度。
-   - 位点发现或蛋白级：要找哪些位点、热点、值得研究的位置（如「TP53 有什么值得研究的位点」）。即使没有 position，也不要问具体残基；可问调研侧重点，或 needs_clarification=false 直接去广搜位点。
-   - 无基因且问题明显针对某个蛋白时，才问 gene。
-3. 示例：
-   - 「哪个激酶修饰了」→ 问蛋白+位点（位点级、靶点全缺）
-   - 「AKT1 有哪些上游激酶」→ 问位点（位点级、有基因无残基）
-   - 「TP53 有什么值得研究 / 研究比较多的位点」→ 不问残基；可直接调研或问侧重点
-   - 「AKT1 S473 肿瘤调控」→ 可问 priority 或 needs_clarification=false
-4. 不要套固定 WHO/WHEN/WHERE/WHY 模板；每次 1–3 个字段，每字段 2–5 个贴合选项（含简短 description）。
-5. 信息够用就 needs_clarification=false；不要为凑问题而问。
-6. 字段 id 用英文 snake_case；文案用中文。只输出 JSON，不要 markdown。
-
-JSON 格式：
-{
-  "needs_clarification": true|false,
-  "intro": "简短说明",
-  "fields": [
-    {
-      "id": "gene|site|priority",
-      "label": "标题",
-      "prompt": "一句问句",
-      "options": [{"label":"...","description":"..."}],
-      "allow_custom": true,
-      "placeholder": "其他…"
-    }
-  ],
-  "free_text": {"label":"补充说明（可选）","placeholder":"..."},
-  "submit_label": "开始深度调研",
-  "skip_label": "跳过，直接调研"
-}`;
-    }
+    const copyLang = lang === "zh"
+        ? "Write all user-visible copy (intro, labels, prompts, option labels, placeholders, submit/skip) in Chinese."
+        : "Write all user-visible copy (intro, labels, prompts, option labels, placeholders, submit/skip) in English.";
     return `You are the qPTM deep-research assistant. Decide from the user's intent whether clarification is needed and what to ask.
 Rules:
 1. Multi-round clarification is allowed. Completed ${round}/${maxRounds} rounds. Ask ONLY what is still ambiguous and material; do not re-ask answered points.
@@ -312,6 +279,7 @@ Rules:
 4. No WHO/WHEN/WHERE/WHY template; 1–3 fields, 2–5 tailored options each.
 5. If information is sufficient, return needs_clarification=false. Do not invent questions.
 6. Field ids snake_case. Output JSON only.
+7. ${copyLang}
 
 JSON schema:
 {
@@ -323,12 +291,7 @@ JSON schema:
   "skip_label": "Skip and research"
 }`;
 }
-function clarificationRetryHint(lang) {
-    if (lang === "zh") {
-        return `上次输出无效或 fields 为空。请只输出合法 JSON。
-按用户问题需要来问：蛋白未指定时问 gene；仅当问题针对某一个位点时才问残基。
-用户要发现/比较/排名位点时，不要问具体残基编号。`;
-    }
+function clarificationRetryHint() {
     return `Previous output was invalid or empty fields. Output valid JSON only.
 Ask only what the user question still needs: gene if the protein is unspecified;
 a residue only if the question is about one specific site.
@@ -355,7 +318,7 @@ export async function buildDeepResearchClarification(message, memory, roundOpts 
     const llm = getLlm();
     for (let attempt = 1; attempt <= CLARIFY_MAX_ATTEMPTS; attempt++) {
         try {
-            const userContent = attempt === 1 ? user : `${user}\n\n${clarificationRetryHint(lang)}`;
+            const userContent = attempt === 1 ? user : `${user}\n\n${clarificationRetryHint()}`;
             const { content } = await llm.chatCompletion([
                 { role: "system", content: system },
                 { role: "user", content: userContent },

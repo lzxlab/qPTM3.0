@@ -8,7 +8,7 @@ const DB_NAMES = {
     get_drug_ptm: "PMADS / DrugBank",
     get_localization: "COMPARTMENTS / UniProt",
     get_ppi_pathways: "STRING / Reactome",
-    search_literature: "PubTator3 / PubMed",
+    search_literature: "PubTator3 / PubMed / Europe PMC",
     qptm_search: "qPTM",
     qptm_site_conditions: "qPTM",
     qptm_kinases: "qPTM",
@@ -16,7 +16,10 @@ const DB_NAMES = {
     psp_kinase_substrate: "PhosphoSitePlus",
     gps6_kinases: "GPS 6.0",
     pubtator_literature_search: "PubTator3",
+    pubmed_esearch: "PubMed",
+    europepmc_literature_search: "Europe PMC",
     pubmed_fetch_abstracts: "PubMed",
+    pubmed_fetch_fulltext: "Europe PMC",
 };
 export function toolDatabase(tool) {
     return DB_NAMES[tool] || tool;

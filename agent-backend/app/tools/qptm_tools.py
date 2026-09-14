@@ -86,9 +86,11 @@ def _qptm_search(
         "organism": organism,
         "ptm_type": ptm_type,
         "page": page,
-        "per_page": min(per_page, 50),
+        "per_page": min(max(int(per_page or 20), 1), 50),
     })
     events = data.get("events", [])
+    cap = min(max(int(per_page or 20), 1), 50)
+    events = events[:cap]
     # Summarize for the LLM (don't dump all events if too many)
     summary = (
         f"Found {data.get('total', 0)} PTM events (showing {len(events)}). "
@@ -104,16 +106,68 @@ def _qptm_search(
         "summary": summary,
         "total": data.get("total", 0),
         "page": data.get("page", 1),
-        "events": events[:20],  # Cap at 20 for context window
+        "events": events,
     }
 
 
 # ── Tool 2: qptm_site_conditions ──────────────────────────────────
 
+_CONTRAST_TYPES = frozenset(
+    {"disease", "pharmacological", "genetic", "physical", "cell_state", "other"}
+)
+
+
+def normalize_contrast_type(value: str | None) -> str:
+    t = (value or "").strip().lower()
+    return t if t in _CONTRAST_TYPES else ""
+
+
+def condition_log2_abs(cond: dict[str, Any]) -> float:
+    rng = cond.get("log2_range") if isinstance(cond.get("log2_range"), dict) else {}
+    for key in ("avg", "max", "min"):
+        try:
+            v = rng.get(key)
+            if v is not None:
+                return abs(float(v))
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def filter_site_conditions(
+    conditions: list[dict[str, Any]],
+    contrast_type: str = "",
+) -> list[dict[str, Any]]:
+    """Filter then optionally sort. Apply *before* limit so disease rows are kept."""
+    rows = [c for c in conditions if isinstance(c, dict)]
+    ctype = normalize_contrast_type(contrast_type)
+    if ctype:
+        rows = [
+            c
+            for c in rows
+            if str(c.get("contrast_type") or "").strip().lower() == ctype
+        ]
+        if ctype == "disease":
+            rows = sorted(rows, key=condition_log2_abs, reverse=True)
+    return rows
+
+
+def _by_type_counts(conditions: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for c in conditions:
+        if not isinstance(c, dict):
+            continue
+        t = str(c.get("contrast_type") or "unannotated").strip().lower() or "unannotated"
+        counts[t] = counts.get(t, 0) + 1
+    return counts
+
+
 def _qptm_site_conditions(
     uniprot_ac: str,
     position: int,
     ptm_type: str = "all",
+    limit: int = 15,
+    contrast_type: str = "",
 ) -> dict[str, Any]:
     """Get experimental conditions for a PTM site via /api/protein.php."""
     ac = (uniprot_ac or "").strip().upper()
@@ -153,33 +207,51 @@ def _qptm_site_conditions(
                 f"Site-conditions lookup failed for {ac} position {pos}: {data.get('error')}"
             ),
         }
-    conditions = data.get("conditions", [])
-    summary = (
-        f"Site {ac} position {pos} was quantified under "
-        f"{data.get('total_conditions', len(conditions))} condition(s). "
-    )
-    if conditions:
-        top = conditions[:10]
+    raw = [c for c in (data.get("conditions") or []) if isinstance(c, dict)]
+    ctype = normalize_contrast_type(contrast_type)
+    filtered = filter_site_conditions(raw, ctype)
+    cap = max(1, min(int(limit or 15), 200)) if filtered else 0
+    shown = filtered[:cap] if filtered else []
+    by_type = _by_type_counts(raw)
+    total_all = int(data.get("total_conditions") or len(raw))
+    total = len(filtered) if ctype else total_all
+
+    if ctype:
+        summary = (
+            f"qPTM: {total} {ctype}-type condition(s) for {ac} position {pos} "
+            f"(of {total_all} total). "
+        )
+    else:
+        summary = (
+            f"Site {ac} position {pos} was quantified under "
+            f"{total_all} condition(s). "
+        )
+    if shown:
+        top = shown[:10]
         cond_names = [c.get("condition_name", "") for c in top]
         summary += f"Top conditions: {', '.join(cond_names)}. "
         significant = [
-            c for c in conditions
-            if c.get("log2_range", {}).get("max") is not None
-            and abs(c["log2_range"]["max"]) > 1.0
+            c for c in filtered
+            if condition_log2_abs(c) > 1.0
         ]
         if significant:
-            summary += f"{len(significant)} condition(s) show log2 ratio > 1 (significant change)."
-    elif data.get("message"):
+            summary += f"{len(significant)} condition(s) show |log2| > 1 (significant change)."
+    elif data.get("message") and not ctype:
         summary += str(data["message"])
-    else:
+    elif not raw:
         summary += "库内无定量 / no site-specific quantitative records."
+    elif ctype:
+        summary += f"No {ctype}-type conditions for this site."
     return {
         "summary": summary,
         "uniprot_ac": ac,
         "position": pos,
         "gene": data.get("gene"),
-        "total_conditions": data.get("total_conditions", 0),
-        "conditions": conditions[:15],
+        "contrast_type": ctype or None,
+        "by_type": by_type,
+        "total_conditions": total,
+        "total_conditions_all": total_all,
+        "conditions": shown,
     }
 
 
@@ -284,6 +356,16 @@ def register_qptm_tools() -> None:
                     "enum": ["all", "phosphorylation", "acetylation", "ubiquitylation",
                              "methylation", "glycosylation", "sumoylation"],
                     "description": "Filter by PTM type (default: all)",
+                },
+                "contrast_type": {
+                    "type": "string",
+                    "enum": ["disease", "pharmacological", "genetic", "physical",
+                             "cell_state", "other"],
+                    "description": (
+                        "Optional Condition type filter matching qPTM Browse/API "
+                        "(disease|pharmacological|genetic|physical|cell_state|other). "
+                        "Applied before the row limit."
+                    ),
                 },
             },
             "required": ["uniprot_ac", "position"],

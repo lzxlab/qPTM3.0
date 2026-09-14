@@ -8,7 +8,7 @@ function looksLikeAgentAskingUser(text) {
         || /\b(would you like me|do you want me|shall I|did you mean)\b/i.test(text);
 }
 /** Concept / refuse / greeting — chips that land on concrete PTM site questions. */
-export function ptmSteerFollowUps(lang) {
+export function ptmSteerFollowUps(lang = "en") {
     if (lang === "zh") {
         return [
             { text: "哪些激酶磷酸化 AKT1 S473？", intent: "qa" },
@@ -33,34 +33,15 @@ export async function generateFollowUps(question, answer, memory, artifacts, mod
     const artifactCatalog = artifacts.catalogForPrompt(8);
     const toolsLine = toolsUsed.length ? toolsUsed.join(", ") : "none";
     const drRule = mode === "qa"
-        ? lang === "zh"
-            ? "其中 2-3 条 intent 必须为 deep_research，用于引导用户做深度调研。"
-            : "Include 2-3 items with intent deep_research to guide deeper investigation."
-        : lang === "zh"
-            ? "全部 intent 为 qa（用户已在深度调研模式）。"
-            : "All intent must be qa (user is already in deep research).";
-    const prompt = lang === "zh"
-        ? `根据本轮调研生成 5 个「用户可一键发送」的后续问题。
-硬性要求：
-1. text 必须是用户口吻的科学追问（例如「TP53 S15 有哪些上游激酶？」），点一下就会作为新问题发出。
-2. 禁止助手反问用户（禁止「您提到的…是指…吗？」「您是否希望我重新查询…」等确认/征求许可句式）。
-3. 禁止讨论系统/工具元问题（靶点解析错误、MCP 未连接、是否重跑某工具）。
-4. 结合实际用过的数据库与结论往深处问，不要泛泛而谈。
-${drRule}
-输出 JSON: [{"text":"...","intent":"qa"|"deep_research"}]
-
-调查上下文: gene=${memory.gene || ""} site=${memory.position || ""} UniProt=${memory.uniprot_ac || ""}
-已用工具: ${toolsLine}
-Artifacts: ${artifactCatalog}
-
-用户问题: ${question}
-回答摘要: ${(answer || "").slice(0, 2500)}`
-        : `Generate 5 clickable follow-up questions the USER would send next.
+        ? "Include 2-3 items with intent deep_research to guide deeper investigation."
+        : "All intent must be qa (user is already in deep research).";
+    const prompt = `Generate 5 clickable follow-up questions the USER would send next.
 Hard rules:
 1. Phrased as the user's scientific questions (e.g. "Which kinases phosphorylate TP53 S15?").
 2. Never ask the user for confirmation or permission ("Did you mean…?", "Would you like me to…?").
 3. No meta/system topics (parse errors, reconnect tools, re-run queries).
 4. Ground in databases/findings from this turn — no generic templates.
+5. Write each "text" in Chinese only if the user's question is in Chinese; otherwise English.
 ${drRule}
 Output JSON: [{"text":"...","intent":"qa"|"deep_research"}]
 

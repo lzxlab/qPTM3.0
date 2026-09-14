@@ -139,7 +139,7 @@ app.post("/chat", async (c) => {
     const traceId = c.req.header("X-Trace-Id")?.trim() || randomUUID();
     let userMsg = message.trim();
     if (!userMsg && clarificationResponse) {
-        userMsg = clarificationResponse.skip ? "（跳过补充，直接研究）" : "（已补充研究信息）";
+        userMsg = clarificationResponse.skip ? "(Skipped extra details; continue research)" : "(Clarification received)";
     }
     if (conversationId && !belongsToDevice(conversationId, did)) {
         return c.json({ error: "Conversation not found" }, 403);

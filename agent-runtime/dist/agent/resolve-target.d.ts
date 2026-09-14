@@ -6,4 +6,4 @@ export declare function resolveSessionTarget(memory: InvestigationMemory, query:
 export declare function invokeArgumentsJson(memory: InvestigationMemory, query: string, extra?: {
     entity?: string;
 }): string;
-export declare function resolvedBanner(memory: InvestigationMemory, lang: "zh" | "en"): string;
+export declare function resolvedBanner(_memory: InvestigationMemory, _lang: "zh" | "en"): string;

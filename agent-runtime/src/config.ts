@@ -35,15 +35,13 @@ export const cfg = {
   qptmMcpCommand: process.env.QPTM_MCP_COMMAND || "/var/www/html/qPTM2026/agent-backend/.venv/bin/python",
   qptmMcpArgs: splitCsv(process.env.QPTM_MCP_ARGS || "-m,mcp_stdio_server"),
   qptmMcpCwd: resolve(__dirname, "..", process.env.QPTM_MCP_CWD || "../agent-backend"),
-  biomcpCommand: process.env.BIOMCP_COMMAND || "biomcp",
-  biomcpArgs: splitCsv(process.env.BIOMCP_ARGS || "serve"),
   tavilyApiKey: process.env.TAVILY_API_KEY || "",
   webSearchTimeoutMs: Number(process.env.WEB_SEARCH_TIMEOUT_MS || 5000),
   /** Per-LLM-attempt timeout (ms). */
   llmTimeoutMs: Number(process.env.LLM_TIMEOUT_MS || 90000),
   /** Total wall-clock budget for Deep Research report synthesis (ms). */
   drSynthesisTimeoutMs: Number(process.env.DR_SYNTHESIS_TIMEOUT_MS || 180000),
-  drSynthesisMaxTokens: Number(process.env.DR_SYNTHESIS_MAX_TOKENS || 4096),
+  drSynthesisMaxTokens: Number(process.env.DR_SYNTHESIS_MAX_TOKENS || 16384),
   /** How many models to try before failing DR synthesis (limits 10+ min fallback chains). */
   drSynthesisMaxModels: Number(process.env.DR_SYNTHESIS_MAX_MODELS || 2),
   skillsDir: resolve(__dirname, "..", process.env.SKILLS_DIR || "../skills"),
@@ -52,4 +50,13 @@ export const cfg = {
   drSupervisorMaxRounds: Number(process.env.DR_SUPERVISOR_MAX_ROUNDS || 6),
   corsOrigins: splitCsv(process.env.CORS_ORIGINS || "*"),
   backendBaseUrl: (process.env.AGENT_BACKEND_URL || "http://127.0.0.1:8100").replace(/\/$/, ""),
+  litSearchLimit: Number(process.env.LIT_SEARCH_LIMIT || 20),
+  litAbstractLimit: Number(process.env.LIT_ABSTRACT_LIMIT || 10),
+  litFulltextLimit: Number(process.env.LIT_FULLTEXT_LIMIT || 3),
+  litAbstractMaxChars: Number(process.env.LIT_ABSTRACT_MAX_CHARS || 4000),
+  litFulltextMaxChars: Number(process.env.LIT_FULLTEXT_MAX_CHARS || 6000),
+  /** Shallow BFS literature (titles/PMIDs only). */
+  litBreadthLimit: Number(process.env.LIT_BREADTH_LIMIT || 10),
+  /** DFS literature search rounds (1–2). */
+  litDepthRounds: Math.max(1, Math.min(2, Number(process.env.LIT_DEPTH_ROUNDS || 2))),
 };

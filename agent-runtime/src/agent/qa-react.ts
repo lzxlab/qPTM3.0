@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { cfg } from "../config.js";
-import { ArtifactStore } from "../context/artifacts.js";
+import { ArtifactStore, compactDbPayload } from "../context/artifacts.js";
 import { addFinding, InvestigationMemory, mergeEntities, parseEntities } from "../context/memory.js";
 import { SessionState } from "../context/session.js";
 import {
@@ -8,6 +8,7 @@ import {
   listMcpTools,
   searchLiteratureArticles,
   readQptmResource,
+  isWebSearchFailure,
   webSearch,
 } from "../mcp/hub.js";
 import { loadSkills, skillsForMode } from "../skills/loader.js";
@@ -19,15 +20,14 @@ import {
   detectLang,
   gateReply,
   needsLiterature,
-  needsWebSearch,
   ptmResearchSteer,
+  ANSWER_LANGUAGE_RULE,
 } from "./gate.js";
 import { retrieveIntentTools } from "./retriever.js";
 import { generateFollowUps, ptmSteerFollowUps } from "./followups.js";
 import {
   applyResolvedIdentity,
   resolveSessionTarget,
-  resolvedBanner,
 } from "./resolve-target.js";
 import {
   containsProtocolMarkup,
@@ -36,6 +36,14 @@ import {
 } from "./protocol.js";
 import { isEmptyToolResult } from "./tool-result.js";
 import { AgentPhase, setPhase } from "./phase.js";
+import { buildIntentArgs } from "./dr-research-loop.js";
+
+function resultRowCount(result: Awaited<ReturnType<typeof callQptmTool>>, empty: boolean): number {
+  if (empty) return 0;
+  const payload = compactDbPayload(result);
+  if (!payload) return 1;
+  return payload.blocks.reduce((n, b) => n + (b.shown || b.rows.length || 0), 0) || 1;
+}
 
 type ToolExec = {
   summary: string;
@@ -43,6 +51,20 @@ type ToolExec = {
   success: boolean;
   error_kind?: string | null;
   empty: boolean;
+};
+
+const WEB_SEARCH_TOOL: OpenAI.Chat.ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: "web_search",
+    description:
+      "Optional targeted web search. Call only when the user's intent needs timely web context or a mechanistic gap databases did not cover — never a generic PTM site query.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string", description: "Specific search query rewritten from the user's intent" } },
+      required: ["query"],
+    },
+  },
 };
 
 async function llmToolsFor(names: string[]): Promise<OpenAI.Chat.ChatCompletionTool[]> {
@@ -76,9 +98,9 @@ async function executeQptmTool(
   memory: InvestigationMemory,
   artifacts: ArtifactStore,
   citations: Citation[],
-  entityHint?: string,
+  extra?: Record<string, unknown> | null,
 ): Promise<ToolExec> {
-  const { args, result } = await callQptmToolRaw(toolHint, question, memory, entityHint);
+  const { args, result } = await callQptmToolRaw(toolHint, question, memory, extra);
   return commitToolResult(toolHint, question, memory, artifacts, citations, args, result);
 }
 
@@ -97,7 +119,11 @@ function commitToolResult(
   addFinding(memory, toolHint, `${summary}${kindTag}`);
   const empty = isEmptyToolResult(result);
   if (!empty) {
-    artifacts.add("db_result", `${toolHint}: ${question}`, summary, { tool: toolHint, arguments: args });
+    artifacts.add("db_result", `${toolHint}: ${question}`, summary, {
+      tool: toolHint,
+      arguments: args,
+      payload: compactDbPayload(result),
+    });
     if (result.success) mergeCitation(citations, toolHint);
   }
   return {
@@ -113,16 +139,9 @@ async function callQptmToolRaw(
   toolHint: string,
   question: string,
   memory: InvestigationMemory,
-  _entityHint?: string,
+  extra?: Record<string, unknown> | null,
 ): Promise<{ args: Record<string, unknown>; result: Awaited<ReturnType<typeof callQptmTool>> }> {
-  const args: Record<string, unknown> = {
-    query: question,
-    gene: memory.gene || "",
-    position: memory.position || 0,
-    uniprot_ac: memory.uniprot_ac || "",
-    ptm_type: memory.ptm_type || "phosphorylation",
-    limit: 15,
-  };
+  const args = buildIntentArgs(memory, question, extra);
   const result = await callQptmTool(toolHint, args);
   return { args, result };
 }
@@ -139,11 +158,11 @@ export async function* runQA(
   mergeEntities(memory, parsed, userMessage);
   memory.query_mode = classifyQueryMode(userMessage, parsed);
 
-  yield setPhase(session, AgentPhase.planning, lang === "zh" ? "理解问题" : "Understanding question");
+  yield setPhase(session, AgentPhase.planning, "Understanding question");
 
   const gate = gateReply(memory.query_mode as Parameters<typeof gateReply>[0], lang);
   if (gate) {
-    yield setPhase(session, AgentPhase.synthesis, lang === "zh" ? "回复" : "Reply");
+    yield setPhase(session, AgentPhase.synthesis, "Reply");
     yield { type: "text", content: gate };
     yield { type: "follow_up_questions", questions: ptmSteerFollowUps(lang) };
     yield { type: "done" };
@@ -153,7 +172,7 @@ export async function* runQA(
   const skills = loadSkills(skillsForMode("qa", userMessage));
 
   if (memory.query_mode === "concept") {
-    yield setPhase(session, AgentPhase.synthesis, lang === "zh" ? "撰写回答" : "Writing answer");
+    yield setPhase(session, AgentPhase.synthesis, "Writing answer");
     const raw = await synthesizeConcept(userMessage, history, skills, lang);
     const answer = ensurePtmSteer(sanitizeUserVisibleText(raw, lang), lang);
     for (const chunk of chunkText(answer)) yield { type: "text", content: chunk };
@@ -163,7 +182,7 @@ export async function* runQA(
     return;
   }
 
-  yield setPhase(session, AgentPhase.retrieving_tools, lang === "zh" ? "准备工具" : "Preparing tools");
+  yield setPhase(session, AgentPhase.retrieving_tools, "Preparing tools");
   const sourcesCatalog = await readQptmResource("qptm://sources");
 
   const toolsUsed: string[] = [];
@@ -173,7 +192,7 @@ export async function* runQA(
     yield setPhase(
       session,
       AgentPhase.synthesis,
-      lang === "zh" ? "基于已有文献回答" : "Answering from cached literature",
+      "Answering from cached literature",
     );
     const litCtx = artifacts.getLiteratureContext();
     const synth = await finalizeQaAnswer(
@@ -190,7 +209,7 @@ export async function* runQA(
     return;
   }
 
-  yield setPhase(session, AgentPhase.database, lang === "zh" ? "查询数据库" : "Querying databases");
+  yield setPhase(session, AgentPhase.database, "Querying databases");
 
   if (memory.gene || memory.uniprot_ac) {
     yield {
@@ -236,7 +255,8 @@ export async function* runQA(
   const bootResults = bootRaw.map((raw, i) =>
     commitToolResult(bootstrap[i], userMessage, memory, artifacts, citations, raw.args, raw.result),
   );
-  for (const r of bootResults) {
+  for (let i = 0; i < bootResults.length; i++) {
+    const r = bootResults[i];
     toolsUsed.push(r.tool);
     yield {
       type: "tool_result",
@@ -245,7 +265,7 @@ export async function* runQA(
         success: r.success,
         summary: r.summary,
         error_kind: r.error_kind,
-        data_count: r.empty ? 0 : 1,
+        data_count: resultRowCount(bootRaw[i].result, r.empty),
       },
       kind: "database",
     };
@@ -257,11 +277,10 @@ export async function* runQA(
     {
       role: "system",
       content:
-        lang === "zh"
-          ? `你是 qPTM 生物学专家。已有部分数据库结果。若仍缺关键证据，调用剩余工具；否则直接给出简洁回答。区分实验与预测。不要输出 DSML/tool_calls 协议文本。
-工具标注：[empty_result]=库中无记录；[missing_params]=缺参；[call_bug]=失败。已解析靶点不得再说缺少 UniProt AC。`
-          : `You are a qPTM biology expert. Some database results are already collected. Call remaining tools only if critical evidence is missing; otherwise answer concisely. Never emit protocol markup.
-Tags: [empty_result]=no records; [missing_params]=need args; [call_bug]=failed. If the target is resolved, do not say UniProt AC is missing.`,
+        `You are a qPTM biology expert. Some database results are already collected. Call remaining database tools only if critical evidence is missing; otherwise answer concisely. Never emit protocol markup.
+Tags: [empty_result]=no records; [missing_params]=need args; [call_bug]=failed. If the target is resolved, do not say UniProt AC is missing.
+web_search is optional. Decide from the user's meaning and the database results — not from keyword triggers. Skip textbook definitions and site facts the databases already answer. Call it when the question needs timely web context (news, clinical or product updates) or a mechanistic gap the databases did not cover. Write a specific query from the user's intent; never a generic "PTM site" search; do not paste the whole user question if a tighter query would work.
+${ANSWER_LANGUAGE_RULE}`,
     },
     ...history.slice(-6).map((h) => ({
       role: h.role as "user" | "assistant",
@@ -279,20 +298,25 @@ Tags: [empty_result]=no records; [missing_params]=need args; [call_bug]=failed. 
   ];
 
   let llmAnswer = "";
+  let webSummary = "";
   for (let round = 0; round < cfg.qaMaxRounds; round++) {
     const remaining = toolList.filter((t) => !used.has(t));
-    const tools = remaining.length ? await llmToolsFor(remaining) : undefined;
+    const tools: OpenAI.Chat.ChatCompletionTool[] = remaining.length
+      ? await llmToolsFor(remaining)
+      : [];
+    if (!used.has("web_search")) tools.push(WEB_SEARCH_TOOL);
     const { content, toolCalls } = await llm.chatCompletion(messages, {
-      tools,
-      maxTokens: 2048,
+      tools: tools.length ? tools : undefined,
+      maxTokens: 4096,
       temperature: 0.35,
     });
 
     const allowedNames = new Set<string>(toolList);
     const remainingNames = new Set<string>(remaining);
-    const allowedCalls = toolCalls.filter(
-      (tc) => remainingNames.has(tc.name) || allowedNames.has(tc.name),
-    );
+    const allowedCalls = toolCalls.filter((tc) => {
+      if (tc.name === "web_search") return !used.has("web_search");
+      return remainingNames.has(tc.name) || allowedNames.has(tc.name);
+    });
     if (allowedCalls.length) {
       messages.push({
         role: "assistant",
@@ -314,22 +338,58 @@ Tags: [empty_result]=no records; [missing_params]=need args; [call_bug]=failed. 
       }
 
       const extraRaw = await Promise.all(
-        allowedCalls.map((tc) => {
+        allowedCalls.map(async (tc) => {
+          if (tc.name === "web_search") {
+            const q = String(tc.arguments?.query || "").trim();
+            const web = q ? await webSearch(q) : "Web search unavailable: empty query";
+            return { kind: "web" as const, tc, q, web };
+          }
           const q = String(tc.arguments?.query || userMessage);
-          return callQptmToolRaw(tc.name, q, memory).then((raw) => ({ tc, q, raw }));
+          const raw = await callQptmToolRaw(tc.name, q, memory, tc.arguments);
+          return { kind: "mcp" as const, tc, q, raw };
         }),
       );
-      const extraResults = extraRaw.map(({ tc, q, raw }) =>
-        commitToolResult(tc.name, q, memory, artifacts, citations, raw.args, raw.result),
-      );
-      for (let i = 0; i < extraResults.length; i++) {
-        const r = extraResults[i];
-        const tc = allowedCalls[i];
+      for (const item of extraRaw) {
+        if (item.kind === "web") {
+          const ok = Boolean(item.web) && !isWebSearchFailure(item.web);
+          if (ok) {
+            webSummary = item.web;
+            artifacts.add("web_search", item.q, item.web.slice(0, 1500));
+          }
+          used.add("web_search");
+          toolsUsed.push("web_search");
+          messages.push({
+            role: "tool",
+            tool_call_id: item.tc.id,
+            content: ok ? item.web.slice(0, 2000) : item.web,
+          });
+          yield {
+            type: "tool_result",
+            payload: {
+              tool_name: "web_search",
+              success: ok,
+              summary: ok ? item.web.slice(0, 400) : item.web,
+              error_kind: ok ? null : "tool_error",
+              data_count: ok ? 1 : 0,
+            },
+            kind: "database",
+          };
+          continue;
+        }
+        const r = commitToolResult(
+          item.tc.name,
+          item.q,
+          memory,
+          artifacts,
+          citations,
+          item.raw.args,
+          item.raw.result,
+        );
         used.add(r.tool);
         toolsUsed.push(r.tool);
         messages.push({
           role: "tool",
-          tool_call_id: tc.id,
+          tool_call_id: item.tc.id,
           content: `${r.summary}${r.error_kind ? ` [${r.error_kind}]` : ""}`,
         });
         yield {
@@ -339,7 +399,7 @@ Tags: [empty_result]=no records; [missing_params]=need args; [call_bug]=failed. 
             success: r.success,
             summary: r.summary,
             error_kind: r.error_kind,
-            data_count: r.empty ? 0 : 1,
+            data_count: resultRowCount(item.raw.result, r.empty),
           },
           kind: "database",
         };
@@ -359,11 +419,11 @@ Tags: [empty_result]=no records; [missing_params]=need args; [call_bug]=failed. 
 
   let litSummary = "";
   if (needsLiterature(userMessage)) {
-    yield setPhase(session, AgentPhase.literature, lang === "zh" ? "检索文献" : "Searching literature");
+    yield setPhase(session, AgentPhase.literature, "Searching literature");
     const start = Date.now();
-    litSummary = await searchLiteratureArticles(userMessage);
+    litSummary = await searchLiteratureArticles(userMessage, cfg.litSearchLimit);
     const elapsed = (Date.now() - start) / 1000;
-    artifacts.add("literature_search", userMessage, litSummary.slice(0, 1500));
+    artifacts.add("literature_search", userMessage, litSummary.slice(0, 8000));
     yield {
       type: "literature_search",
       round: 1,
@@ -374,20 +434,19 @@ Tags: [empty_result]=no records; [missing_params]=need args; [call_bug]=failed. 
     mergeCitation(citations, "pubtator_literature_search");
   }
 
-  let webSummary = "";
-  if (needsWebSearch(userMessage)) {
-    webSummary = await webSearch(userMessage);
-    artifacts.add("web_search", userMessage, webSummary.slice(0, 1500));
-  }
-
-  yield setPhase(session, AgentPhase.synthesis, lang === "zh" ? "撰写回答" : "Writing answer");
-  const extraCtx = [litSummary, webSummary, artifacts.catalogForPrompt(12, { skipEmpty: true })]
+  yield setPhase(session, AgentPhase.synthesis, "Writing answer");
+  const extraCtx = [
+    litSummary,
+    webSummary,
+    artifacts.catalogForPrompt(12, { skipEmpty: true }),
+    artifacts.rowsForPrompt(8000),
+  ]
     .filter(Boolean)
     .join("\n---\n");
 
   let answer: string;
   if (llmAnswer && !litSummary && !webSummary) {
-    answer = resolvedBanner(memory, lang) + sanitizeUserVisibleText(llmAnswer, lang);
+    answer = sanitizeUserVisibleText(llmAnswer, lang);
   } else {
     answer = await finalizeQaAnswer(
       () => synthesizeQA(userMessage, history, memory, skills, sourcesCatalog, extraCtx, citations, lang),
@@ -416,7 +475,7 @@ async function finalizeQaAnswer(
     raw = await synthesize();
     sanitized = sanitizeUserVisibleText(raw, lang);
   }
-  return resolvedBanner(memory, lang) + sanitized;
+  return sanitized;
 }
 
 async function synthesizeQA(
@@ -430,14 +489,10 @@ async function synthesizeQA(
   lang: "zh" | "en",
 ): Promise<string> {
   const citeList = citations.map((c) => `${c.id}: ${c.database}`).join(", ");
-  const system =
-    lang === "zh"
-      ? `你是 qPTM 生物学专家助手，只回答生物学问题。回答简洁准确，区分实验数据与预测结果。引用数据库名（${citeList}）。不要冗长综述。
-工具结果标注含义：[empty_result]=库中无记录，不是缺参数；[missing_params]=缺少参数；[call_bug]=调用失败。已解析的靶点（gene/UniProt/site）不得再说“缺少 UniProt AC”。
-禁止输出 DSML、tool_calls、function_call、XML 工具调用等协议 markup；只输出给用户看的自然语言回答。`
-      : `You are qPTM biology expert. Answer concisely; distinguish experimental vs predicted evidence. Cite databases (${citeList}). No lengthy reviews.
+  const system = `You are qPTM biology expert. Answer concisely; distinguish experimental vs predicted evidence. Cite databases (${citeList}). No lengthy reviews.
 Tool tags: [empty_result]=no records in DB (not a missing ID); [missing_params]=need more arguments; [call_bug]=call failed. If gene/UniProt/site is already resolved, do NOT say UniProt AC is missing.
-Never emit DSML, tool_calls, function_call, XML tool invocations, or other protocol markup — only user-facing natural language.`;
+Never emit DSML, tool_calls, function_call, XML tool invocations, or other protocol markup — only user-facing natural language.
+${ANSWER_LANGUAGE_RULE}`;
 
   const userBlock = [
     skills,
@@ -458,7 +513,7 @@ Never emit DSML, tool_calls, function_call, XML tool invocations, or other proto
   ];
 
   const llm = getLlm();
-  const { content } = await llm.chatCompletion(messages, { maxTokens: 2048, temperature: 0.35 });
+  const { content } = await llm.chatCompletion(messages, { maxTokens: 4096, temperature: 0.35 });
   return content;
 }
 
@@ -468,14 +523,10 @@ async function synthesizeConcept(
   skills: string,
   lang: "zh" | "en",
 ): Promise<string> {
-  const system =
-    lang === "zh"
-      ? `你是 **qPTM 的 PTM 研究助手**，也可以先讲清分子与细胞生物学概念（蛋白质、基因、细胞、翻译后修饰等）。
-**不要**拒绝生物学相关问题。回答清晰、结构化。
-文末必须用 2–4 句把用户引向 **翻译后修饰（PTM）研究**：说明该概念与 PTM/qPTM 的关系，并给出 1–2 个可直接提问的位点例子（如 AKT1 S473、TP53 S15）。不要用「后续问题」标题、不要列编号清单——界面会另给推荐问题。`
-      : `You are the **qPTM PTM research assistant**. You may first explain molecular and cell-biology concepts (proteins, genes, cells, PTMs).
+  const system = `You are the **qPTM PTM research assistant**. You may first explain molecular and cell-biology concepts (proteins, genes, cells, PTMs).
 Do NOT refuse biology-related questions. Be clear and structured.
-End with 2–4 sentences that steer the user into **PTM research**: how this concept connects to PTMs/qPTM, plus 1–2 askable site examples (e.g. AKT1 S473, TP53 S15). Do not use a "Next steps" heading or a numbered list — the UI shows follow-up chips separately.`;
+End with 2–4 sentences that steer the user into **PTM research**: how this concept connects to PTMs/qPTM, plus 1–2 askable site examples (e.g. AKT1 S473, TP53 S15). Do not use a "Next steps" heading or a numbered list — the UI shows follow-up chips separately.
+${ANSWER_LANGUAGE_RULE}`;
 
   const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
     { role: "system", content: system },
@@ -487,7 +538,7 @@ End with 2–4 sentences that steer the user into **PTM research**: how this con
   ];
 
   const llm = getLlm();
-  const { content } = await llm.chatCompletion(messages, { maxTokens: 2048, temperature: 0.35 });
+  const { content } = await llm.chatCompletion(messages, { maxTokens: 4096, temperature: 0.35 });
   return content;
 }
 

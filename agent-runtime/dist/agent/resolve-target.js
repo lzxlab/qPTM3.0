@@ -67,17 +67,6 @@ export function invokeArgumentsJson(memory, query, extra = {}) {
         ...(extra.entity ? { entity: extra.entity } : {}),
     });
 }
-export function resolvedBanner(memory, lang) {
-    if (!memory.gene && !memory.uniprot_ac)
-        return "";
-    const gene = memory.gene || "";
-    const ac = memory.uniprot_ac || "";
-    const site = memory.position ? String(memory.position) : "";
-    const org = memory.organism || "human";
-    const core = [gene, ac ? `(${ac})` : "", site ? `· ${site}` : "", org ? `· ${org}` : ""]
-        .filter(Boolean)
-        .join(" ");
-    return lang === "zh"
-        ? `**已解析靶点：** Resolved: ${core}\n\n`
-        : `**Resolved:** ${core}\n\n`;
+export function resolvedBanner(_memory, _lang) {
+    return "";
 }

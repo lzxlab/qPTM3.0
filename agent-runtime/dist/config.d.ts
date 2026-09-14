@@ -10,8 +10,6 @@ export declare const cfg: {
     qptmMcpCommand: string;
     qptmMcpArgs: string[];
     qptmMcpCwd: string;
-    biomcpCommand: string;
-    biomcpArgs: string[];
     tavilyApiKey: string;
     webSearchTimeoutMs: number;
     /** Per-LLM-attempt timeout (ms). */
@@ -27,4 +25,13 @@ export declare const cfg: {
     drSupervisorMaxRounds: number;
     corsOrigins: string[];
     backendBaseUrl: string;
+    litSearchLimit: number;
+    litAbstractLimit: number;
+    litFulltextLimit: number;
+    litAbstractMaxChars: number;
+    litFulltextMaxChars: number;
+    /** Shallow BFS literature (titles/PMIDs only). */
+    litBreadthLimit: number;
+    /** DFS literature search rounds (1–2). */
+    litDepthRounds: number;
 };

@@ -13,8 +13,9 @@
 
 ## When to search
 - Use database tools for site-specific factual questions (gene + residue).
-- Skip tools for simple "what is / 什么是" biology concepts.
+- Skip tools for simple "what is" biology concepts.
 - Use literature search when the user asks about papers, recent studies, or mechanisms lacking in DBs.
+- `web_search` is optional. Decide from the user's meaning and the database results already in hand — not from trigger words. Skip textbook definitions and site facts the databases already answer. Call it when the question needs timely web context (news, clinical or product updates) or a mechanistic gap the databases did not cover. Write a specific query from the user's intent; never a generic `PTM site` search.
 
 ## Do not
 - Invent data when a database returns empty results.

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { ModelRuntime } from "@earendil-works/pi-coding-agent"
@@ -326,6 +327,23 @@ export async function createLlmRuntime(options: {
 
 type CompleteSimpleArgs = Parameters<ModelRuntime["completeSimple"]>
 
+let defaultOpenCodeSession: string | undefined
+
+function getOpenCodeSessionId(): string {
+  const fromEnv = process.env.OPENCODE_SESSION?.trim()
+  if (fromEnv) return fromEnv
+  if (!defaultOpenCodeSession) defaultOpenCodeSession = randomUUID()
+  return defaultOpenCodeSession
+}
+
+function openCodeRequestHeaders(model: Model<any>): Record<string, string> {
+  if (model.provider !== "opencode-go" && model.provider !== "opencode") return {}
+  return {
+    "x-opencode-session": getOpenCodeSessionId(),
+    "x-opencode-client": "pi",
+  }
+}
+
 /**
  * Call completeSimple on the primary model, then fallbacks on failure.
  */
@@ -345,8 +363,13 @@ export async function completeSimpleWithFallback(
       if (i > 0) {
         console.error(`  llm: falling back to ${label}`)
       }
+      const sessionHeaders = openCodeRequestHeaders(model)
+      const callOptions =
+        Object.keys(sessionHeaders).length > 0
+          ? { ...options, headers: { ...options?.headers, ...sessionHeaders } }
+          : options
       const result = await Promise.race([
-        runtime.modelRuntime.completeSimple(model, context, options),
+        runtime.modelRuntime.completeSimple(model, context, callOptions),
         new Promise<never>((_, reject) =>
           setTimeout(
             () =>

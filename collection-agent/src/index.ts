@@ -203,6 +203,7 @@ async function runJob(opts: CliArgs): Promise<void> {
     throw new Error("run-job requires --pmid and --out-dir")
   }
   const jobId = opts.jobId ?? `job-${opts.pmid}`
+  process.env.OPENCODE_SESSION = jobId
   const state = await runCollectionJob({
     jobId,
     outDir: opts.outDir,
@@ -229,6 +230,7 @@ async function runResolveUrls(opts: CliArgs): Promise<void> {
     throw new Error("resolve-urls requires --accession and --out-dir")
   }
   const jobId = opts.jobId ?? `urls-${accessions[0].toLowerCase()}`
+  process.env.OPENCODE_SESSION = jobId
   const state = await runResolveUrlsJob({
     jobId,
     outDir: opts.outDir,

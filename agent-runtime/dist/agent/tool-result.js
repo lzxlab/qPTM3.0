@@ -39,10 +39,18 @@ export function gapScore(outcomes) {
     const bad = outcomes.filter((o) => o.empty || o.callBug || o.predictedOnly).length;
     return bad / outcomes.length;
 }
-export function mayRecallIntent(tool, emptyTools, succeededTools) {
+export function wantsIntentExpand(args) {
+    if (!args)
+        return false;
+    if (args.sources != null && String(args.sources).trim())
+        return true;
+    const limit = Number(args.limit);
+    return Number.isFinite(limit) && limit > 15;
+}
+export function mayRecallIntent(tool, emptyTools, succeededTools, opts) {
     if (emptyTools.has(tool))
         return false;
-    if (succeededTools.has(tool))
+    if (succeededTools.has(tool) && !opts?.expand)
         return false;
     return true;
 }

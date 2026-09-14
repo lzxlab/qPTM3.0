@@ -66,3 +66,54 @@ def test_qptm_kinases_mixed_evidence():
         limit=5,
     )
     assert block["evidence_level"] == "mixed"
+
+
+def test_qptm_kinases_limit_200_keeps_99():
+    kinases = [{"kinase_gene": f"K{i}", "evidence_type": "experimental"} for i in range(99)]
+    block = format_tool_block(
+        "qptm_kinases",
+        {
+            "success": True,
+            "summary": "Found 99 kinase(s)/enzyme(s) for P31749 position 473.",
+            "data": {"kinases": kinases, "total": 99},
+        },
+        limit=200,
+    )
+    assert block["shown"] == 99
+    assert block["total"] == 99
+    assert block["truncated"] is False
+
+
+def test_gps_predictions_extracted_as_rows():
+    block = format_tool_block(
+        "gps6_kinases",
+        {
+            "success": True,
+            "summary": "GPS predictions",
+            "data": {
+                "predictions": [
+                    {"kinase_gene": "MTOR", "score": 0.9},
+                    {"kinase_gene": "AKT1", "score": 0.8},
+                ]
+            },
+        },
+        limit=15,
+    )
+    assert len(block["rows"]) == 2
+    assert block["total"] == 2
+
+
+def test_truncated_preview_keeps_total_from_summary():
+    block = format_tool_block(
+        "qptm_kinases",
+        {
+            "success": True,
+            "summary": "Found 99 kinase(s)/enzyme(s) for P31749 position 473.",
+            "data": {"truncated": True, "preview": '{"kinases":['},
+        },
+        limit=15,
+    )
+    assert block["rows"] == []
+    assert block["total"] == 99
+    assert block["truncated"] is True
+    assert block["summary"].endswith("…") or "99" in block["summary"]

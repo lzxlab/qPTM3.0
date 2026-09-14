@@ -38,11 +38,16 @@ export function agentEventToSse(event: AgentEvent): string | null {
         ...(event.payload as Record<string, unknown>),
         kind: event.kind || "database",
       });
-    case "phase_update":
-      return sseFormat("phase_update", {
+    case "phase_update": {
+      const data: Record<string, unknown> = {
         phase: event.phase || "",
         label: event.label || "",
-      });
+      };
+      if (typeof event.detail === "string" && event.detail.trim()) {
+        data.detail = event.detail;
+      }
+      return sseFormat("phase_update", data);
+    }
     case "sources":
       return sseFormat("sources", { citations: event.citations || [] });
     case "follow_up_questions":

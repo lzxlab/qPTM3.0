@@ -39,7 +39,8 @@ KB_TOOLS: dict[str, list[str]] = {
         "psp_ptmvar", "dbptm_functional",
     ],
     KB_LITERATURE: [
-        "pubtator_literature_search", "pubmed_fetch_abstracts",
+        "pubtator_literature_search", "pubmed_esearch", "europepmc_literature_search",
+        "pubmed_fetch_abstracts", "pubmed_fetch_fulltext",
     ],
 }
 

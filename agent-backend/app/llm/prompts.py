@@ -307,6 +307,8 @@ contextualize rewiring after mutation [Sx]. Label experimental vs predicted.
 ### Disease and clinical context
 Disease associations, cancer vs normal quantification, and therapeutic /
 biomarker implications tied to the mutation–PTM axis [Sx].
+If listing disease–PTM association counts, include **qPTM (Condition type=disease)**
+quantitative log2 conditions; never list **PTM-stability** as a disease source.
 
 Then tables + ## Recommended Literature + ## Sources as below.
 Do **not** add ## Next step / ## 后续问题 or inline example questions — follow-ups are shown separately in the UI.

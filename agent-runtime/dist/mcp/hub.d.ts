@@ -3,7 +3,7 @@ export type McpToolDef = {
     description?: string;
     inputSchema?: Record<string, unknown>;
 };
-/** Connect qPTM stdio MCP only — never blocks on BioMCP. Retries after failed connect. */
+/** Connect qPTM stdio MCP. Retries after failed connect. */
 export declare function initQptmMcp(): Promise<void>;
 /** @deprecated Use initQptmMcp — kept for callers that only need qPTM tools. */
 export declare function initMcpClients(): Promise<void>;
@@ -22,12 +22,9 @@ export type QptmToolResult = {
     resolved?: Record<string, unknown> | null;
 };
 export declare function callQptmTool(toolName: string, args: Record<string, unknown>): Promise<QptmToolResult>;
-export declare function callBiomcp(command: string, args?: string[]): Promise<string>;
-export declare function biomcpSearchArticle(query: string): Promise<string>;
-export declare function biomcpGetArticle(id: string): Promise<string>;
 /**
- * Literature search with a reliable fallback: BioMCP is often unavailable on this host.
- * Prefer qPTM MCP search_literature intent tool.
+ * Search PubTator3 + PubMed esearch + Europe PMC (merged in MCP search_literature).
  */
-export declare function searchLiteratureArticles(query: string): Promise<string>;
+export declare function searchLiteratureArticles(query: string, limit?: number): Promise<string>;
+export declare function isWebSearchFailure(text: string): boolean;
 export declare function webSearch(query: string): Promise<string>;

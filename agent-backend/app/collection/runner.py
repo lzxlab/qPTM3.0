@@ -194,10 +194,12 @@ async def _run_cli(
     log_path = out / log_name
     cmd = _cli_base() + args
     logger.info("collection job %s: %s", job_id, " ".join(cmd))
+    env = _collection_env()
+    env["OPENCODE_SESSION"] = job_id
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=settings.collection_agent_dir,
-        env=_collection_env(),
+        env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )

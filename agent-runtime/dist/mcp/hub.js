@@ -1,11 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { spawn } from "node:child_process";
 import { cfg } from "../config.js";
 let qptmClient = null;
-let biomcpClient = null;
 let qptmInitPromise = null;
-let biomcpInitPromise = null;
 let cachedMcpTools = null;
 /** In-flight stdio transport — closed on connect timeout to avoid orphan processes. */
 let pendingQptmTransport = null;
@@ -78,7 +75,7 @@ async function connectStdioWithTimeout(name, command, args, cwd) {
             clearTimeout(timer);
     }
 }
-/** Connect qPTM stdio MCP only — never blocks on BioMCP. Retries after failed connect. */
+/** Connect qPTM stdio MCP. Retries after failed connect. */
 export async function initQptmMcp() {
     if (qptmClient)
         return;
@@ -91,16 +88,6 @@ export async function initQptmMcp() {
         }
     })();
     return qptmInitPromise;
-}
-/** Lazy BioMCP — optional; failures/timeouts do not block chat. */
-async function initBiomcpMcp() {
-    if (biomcpClient)
-        return biomcpClient;
-    if (biomcpInitPromise)
-        return biomcpInitPromise;
-    biomcpInitPromise = connectStdioWithTimeout("biomcp", cfg.biomcpCommand, cfg.biomcpArgs);
-    biomcpClient = await biomcpInitPromise;
-    return biomcpClient;
 }
 /** @deprecated Use initQptmMcp — kept for callers that only need qPTM tools. */
 export async function initMcpClients() {
@@ -152,9 +139,6 @@ export async function listMcpTools() {
         await resetQptmMcpClient();
         return [];
     }
-}
-async function ensureBiomcpMcp() {
-    return initBiomcpMcp();
 }
 export async function readQptmResource(uri) {
     await ensureQptmMcp();
@@ -233,69 +217,36 @@ export async function callQptmTool(toolName, args) {
         return { success: false, summary: String(e), data: null, error_kind: "call_bug" };
     }
 }
-export async function callBiomcp(command, args = []) {
-    const client = await ensureBiomcpMcp();
-    if (!client) {
-        return await fallbackBiomcpCli(command, args);
-    }
-    try {
-        const result = await client.client.callTool({
-            name: "biomcp",
-            arguments: { command, args },
-        });
-        const content = (result.content || []);
-        return content.map((c) => c.text || "").join("\n").slice(0, 8000);
-    }
-    catch (e) {
-        return `BioMCP error: ${e}`;
-    }
-}
-async function fallbackBiomcpCli(command, args) {
-    return new Promise((resolve) => {
-        const child = spawn(cfg.biomcpCommand, [command, ...args], { timeout: 30000 });
-        let out = "";
-        child.stdout.on("data", (d) => (out += d));
-        child.stderr.on("data", (d) => (out += d));
-        child.on("close", () => resolve(out.slice(0, 8000)));
-        child.on("error", () => resolve("BioMCP CLI not available"));
-    });
-}
-export async function biomcpSearchArticle(query) {
-    return callBiomcp("search", ["article", query]);
-}
-export async function biomcpGetArticle(id) {
-    return callBiomcp("get", ["article", id]);
-}
 /**
- * Literature search with a reliable fallback: BioMCP is often unavailable on this host.
- * Prefer qPTM MCP search_literature intent tool.
+ * Search PubTator3 + PubMed esearch + Europe PMC (merged in MCP search_literature).
  */
-export async function searchLiteratureArticles(query) {
+export async function searchLiteratureArticles(query, limit) {
     const q = (query || "").trim();
     if (!q)
         return "";
-    const viaPubtator = await callQptmTool("search_literature", { query: q, limit: 8 });
-    if (viaPubtator.success || viaPubtator.summary) {
-        const dataStr = typeof viaPubtator.data === "string"
-            ? viaPubtator.data
-            : JSON.stringify(viaPubtator.data ?? {});
-        const blockStr = viaPubtator.blocks ? JSON.stringify(viaPubtator.blocks) : "";
-        const combined = `${viaPubtator.summary || ""}\n${blockStr}\n${dataStr}`;
-        if (/PMID/i.test(combined) || /publication/i.test(viaPubtator.summary || "")) {
-            return combined.slice(0, 8000);
+    const cap = Math.max(1, Math.min(limit || cfg.litSearchLimit, 50));
+    const viaSearch = await callQptmTool("search_literature", { query: q, limit: cap });
+    if (viaSearch.success || viaSearch.summary) {
+        const dataStr = typeof viaSearch.data === "string"
+            ? viaSearch.data
+            : JSON.stringify(viaSearch.data ?? {});
+        const blockStr = viaSearch.blocks ? JSON.stringify(viaSearch.blocks) : "";
+        const combined = `${viaSearch.summary || ""}\n${blockStr}\n${dataStr}`;
+        if (/PMID/i.test(combined) || /publication|Merged|esearch|Europe PMC/i.test(viaSearch.summary || "")) {
+            return combined.slice(0, 16000);
+        }
+        if (viaSearch.summary) {
+            return `${viaSearch.summary}\n${JSON.stringify(viaSearch.data ?? {})}`.slice(0, 16000);
         }
     }
-    const viaBiomcp = await biomcpSearchArticle(q);
-    if (viaBiomcp && !/BioMCP CLI not available|MCP biomcp connect failed|BioMCP error/i.test(viaBiomcp)) {
-        return viaBiomcp;
-    }
-    return viaPubtator.summary
-        ? `${viaPubtator.summary}\n${JSON.stringify(viaPubtator.data ?? {})}`.slice(0, 8000)
-        : viaBiomcp || "Literature search unavailable";
+    return viaSearch.summary || "Literature search unavailable";
+}
+export function isWebSearchFailure(text) {
+    return text.startsWith("Web search failed") || text.startsWith("Web search unavailable");
 }
 export async function webSearch(query) {
     if (!cfg.tavilyApiKey) {
-        return await biomcpSearchArticle(query);
+        return "Web search unavailable: Tavily not configured";
     }
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), cfg.webSearchTimeoutMs);
@@ -311,6 +262,9 @@ export async function webSearch(query) {
             }),
             signal: controller.signal,
         });
+        if (!res.ok) {
+            return `Web search failed: Tavily HTTP ${res.status}`;
+        }
         const data = (await res.json());
         return (data.results || [])
             .map((r) => `${r.title}\n${r.content}\n${r.url}`)

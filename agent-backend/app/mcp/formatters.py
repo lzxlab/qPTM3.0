@@ -100,6 +100,11 @@ def _extract_rows(data: Any) -> list[dict[str, Any]]:
         "abstracts",
         "curves",
         "mutations",
+        "predictions",
+        "kinase_best",
+        "localizations",
+        "segments",
+        "proteins",
     ):
         val = data.get(key)
         if isinstance(val, list) and val and isinstance(val[0], dict):
@@ -142,6 +147,34 @@ def _sort_key(tool_name: str, row: dict[str, Any]) -> tuple:
     return (0,)
 
 
+def _clip_summary(text: str, max_len: int) -> str:
+    s = (text or "").strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1] + "…"
+
+
+def _count_hint(invoke_result: dict[str, Any], data: dict[str, Any] | None) -> int:
+    for src in (data or {}, invoke_result):
+        if not isinstance(src, dict):
+            continue
+        for key in ("total", "count", "n", "total_conditions"):
+            try:
+                n = int(src.get(key))  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                continue
+            if n > 0:
+                return n
+    summary = str(invoke_result.get("summary") or "")
+    m = re.search(r"Found\s+(\d+)", summary, re.I)
+    if m:
+        return int(m.group(1))
+    m = re.search(r"(\d+)\s+(?:kinase|hit|event|condition|result)", summary, re.I)
+    if m:
+        return int(m.group(1))
+    return 0
+
+
 def _trim_row(row: dict[str, Any], max_len: int = 320) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for k, v in row.items():
@@ -164,17 +197,21 @@ def format_tool_block(
     """Turn one registry/MCP invoke result into a source block."""
     meta = _manifest_meta(tool_name)
     data = invoke_result.get("data")
-    if isinstance(data, dict) and "preview" in data and data.get("truncated"):
+    cap = max(1, min(int(limit or 15), 200))
+    wipe = isinstance(data, dict) and bool(data.get("truncated")) and "preview" in data
+    if wipe:
         rows = []
-        total = 0
+        total = _count_hint(invoke_result, data if isinstance(data, dict) else None)
+        truncated = True
     else:
         rows = _extract_rows(data)
         rows = sorted(rows, key=lambda r: _sort_key(tool_name, r))
         total = len(rows)
-        rows = [_trim_row(r) for r in rows[:limit]]
+        rows = [_trim_row(r) for r in rows[:cap]]
+        truncated = total > len(rows)
 
     success = bool(invoke_result.get("success"))
-    summary = str(invoke_result.get("summary") or "")[:500]
+    summary = _clip_summary(str(invoke_result.get("summary") or ""), 500)
     error_kind = invoke_result.get("error_kind")
 
     block: dict[str, Any] = {
@@ -187,7 +224,7 @@ def format_tool_block(
         "summary": summary,
         "total": total,
         "shown": len(rows),
-        "truncated": total > len(rows),
+        "truncated": truncated,
         "rows": rows,
     }
     if tool_name in _BLOCK_LEGENDS:
@@ -216,7 +253,7 @@ def format_intent_response(
     return {
         "success": any_ok if blocks else success,
         "error_kind": error_kind,
-        "summary": summary[:800],
+        "summary": _clip_summary(summary, 800),
         "missing": missing or [],
         "intent": intent,
         "resolved": resolved,

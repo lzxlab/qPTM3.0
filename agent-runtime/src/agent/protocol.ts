@@ -47,19 +47,24 @@ export function failedGenerationMessage(lang: "zh" | "en" = "en"): string {
   return lang === "zh" ? "生成失败，请重试。" : "Generation failed. Please retry.";
 }
 
-function isSubstantiveAnswer(text: string): boolean {
-  const stripped = text
+function stripResolvedBanner(text: string): string {
+  return text
     .replace(/\*\*(?:Resolved|已解析靶点)[：:]\*\*[^\n]*\n*/gi, "")
-    .replace(/^Resolved:\s*[^\n]+\n*/im, "")
-    .replace(/\s/g, "");
+    .replace(/^(?:已解析靶点[：:]\s*)?Resolved:\s*[^\n]+\n*/gim, "")
+    .replace(/^已解析靶点[：:][^\n]*\n*/gim, "");
+}
+
+function isSubstantiveAnswer(text: string): boolean {
+  const stripped = stripResolvedBanner(text).replace(/\s/g, "");
   return stripped.length >= 24;
 }
 
 /** If stripping leaves nothing readable, replace with a retry prompt. */
 export function sanitizeUserVisibleText(text: string, lang: "zh" | "en" = "en"): string {
   const { text: cleaned, leaked } = stripProtocolMarkup(text);
-  if (leaked && !isSubstantiveAnswer(cleaned)) {
+  const visible = stripResolvedBanner(cleaned).replace(/^\n+/, "");
+  if (leaked && !isSubstantiveAnswer(visible)) {
     return failedGenerationMessage(lang);
   }
-  return cleaned;
+  return visible;
 }

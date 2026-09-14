@@ -5,5 +5,5 @@ export interface FollowUpQuestion {
     intent: "qa" | "deep_research";
 }
 /** Concept / refuse / greeting — chips that land on concrete PTM site questions. */
-export declare function ptmSteerFollowUps(lang: "zh" | "en"): FollowUpQuestion[];
+export declare function ptmSteerFollowUps(lang?: "zh" | "en"): FollowUpQuestion[];
 export declare function generateFollowUps(question: string, answer: string, memory: InvestigationMemory, artifacts: ArtifactStore, mode: "qa" | "deep_research", toolsUsed: string[]): Promise<FollowUpQuestion[]>;

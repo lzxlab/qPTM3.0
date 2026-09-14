@@ -13,6 +13,10 @@ export type QueryMode =
   | "compare"
   | "followup";
 
+/** Always-English instruction: user-visible answers follow the user's question language. */
+export const ANSWER_LANGUAGE_RULE =
+  "Write the user-visible answer in Chinese only if the user's question is in Chinese; otherwise English.";
+
 const GREETING_RE = /^(hi|hello|hey|你好|您好|早上好|晚上好)\b/i;
 const HELP_RE = /^(help|如何使用|怎么用|帮助)\b/i;
 const CAPABILITY_RE = /what can you do|你能做什么|功能介绍|capabilities/i;
@@ -178,8 +182,4 @@ export function gateReply(mode: QueryMode, lang: "zh" | "en"): string | null {
 
 export function needsLiterature(message: string): boolean {
   return /literature|paper|pubmed|recent studies|文献|论文|研究进展/i.test(message);
-}
-
-export function needsWebSearch(message: string): boolean {
-  return /latest|recent news|2024|2025|2026|最新|进展|trend/i.test(message);
 }

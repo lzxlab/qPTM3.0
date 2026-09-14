@@ -16,7 +16,7 @@ import {
 } from "./clarification.js";
 import { runQA } from "./qa-react.js";
 import { runDeepResearch } from "./deep-research.js";
-import { detectLang, classifyQueryMode, shouldSkipInvestigation } from "./gate.js";
+import { classifyQueryMode, shouldSkipInvestigation } from "./gate.js";
 import {
   mergeEntities,
   normalizeTargetIdentity,
@@ -69,7 +69,6 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
     session.clarifyRound = 0;
   }
   mergeEntities(session.memory, parsed, userMessage);
-  const lang = detectLang(userMessage);
   const queryMode = classifyQueryMode(userMessage, parsed);
   session.memory.query_mode = queryMode;
   session.lastMode = shouldSkipInvestigation(queryMode) ? "qa" : "deep_research";
@@ -121,13 +120,9 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
     yield setPhase(
       session,
       AgentPhase.clarifying,
-      lang === "zh"
-        ? session.clarifyRound > 0
-          ? "根据已有信息，判断是否还需要补充…"
-          : "思考需要澄清的问题…"
-        : session.clarifyRound > 0
-          ? "Checking whether more clarification is needed…"
-          : "Thinking about what to clarify…",
+      session.clarifyRound > 0
+        ? "Checking whether more clarification is needed…"
+        : "Thinking about what to clarify…",
     );
     const payload = await buildDeepResearchClarification(userMessage, session.memory, {
       round: session.clarifyRound,

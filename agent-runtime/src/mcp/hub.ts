@@ -1,6 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { spawn } from "node:child_process";
 import { cfg } from "../config.js";
 
 type McpClientWrap = {
@@ -16,9 +15,7 @@ export type McpToolDef = {
 };
 
 let qptmClient: McpClientWrap | null = null;
-let biomcpClient: McpClientWrap | null = null;
 let qptmInitPromise: Promise<void> | null = null;
-let biomcpInitPromise: Promise<McpClientWrap | null> | null = null;
 let cachedMcpTools: McpToolDef[] | null = null;
 
 /** In-flight stdio transport — closed on connect timeout to avoid orphan processes. */
@@ -98,7 +95,7 @@ async function connectStdioWithTimeout(
   }
 }
 
-/** Connect qPTM stdio MCP only — never blocks on BioMCP. Retries after failed connect. */
+/** Connect qPTM stdio MCP. Retries after failed connect. */
 export async function initQptmMcp(): Promise<void> {
   if (qptmClient) return;
   if (qptmInitPromise) return qptmInitPromise;
@@ -114,15 +111,6 @@ export async function initQptmMcp(): Promise<void> {
     }
   })();
   return qptmInitPromise;
-}
-
-/** Lazy BioMCP — optional; failures/timeouts do not block chat. */
-async function initBiomcpMcp(): Promise<McpClientWrap | null> {
-  if (biomcpClient) return biomcpClient;
-  if (biomcpInitPromise) return biomcpInitPromise;
-  biomcpInitPromise = connectStdioWithTimeout("biomcp", cfg.biomcpCommand, cfg.biomcpArgs);
-  biomcpClient = await biomcpInitPromise;
-  return biomcpClient;
 }
 
 /** @deprecated Use initQptmMcp — kept for callers that only need qPTM tools. */
@@ -175,10 +163,6 @@ export async function listMcpTools(): Promise<McpToolDef[]> {
     await resetQptmMcpClient();
     return [];
   }
-}
-
-async function ensureBiomcpMcp(): Promise<McpClientWrap | null> {
-  return initBiomcpMcp();
 }
 
 export async function readQptmResource(uri: string): Promise<string> {
@@ -276,75 +260,39 @@ export async function callQptmTool(
   }
 }
 
-export async function callBiomcp(command: string, args: string[] = []): Promise<string> {
-  const client = await ensureBiomcpMcp();
-  if (!client) {
-    return await fallbackBiomcpCli(command, args);
-  }
-  try {
-    const result = await client.client.callTool({
-      name: "biomcp",
-      arguments: { command, args },
-    });
-    const content = (result.content || []) as Array<{ type: string; text?: string }>;
-    return content.map((c) => c.text || "").join("\n").slice(0, 8000);
-  } catch (e) {
-    return `BioMCP error: ${e}`;
-  }
-}
-
-async function fallbackBiomcpCli(command: string, args: string[]): Promise<string> {
-  return new Promise((resolve) => {
-    const child = spawn(cfg.biomcpCommand, [command, ...args], { timeout: 30000 });
-    let out = "";
-    child.stdout.on("data", (d) => (out += d));
-    child.stderr.on("data", (d) => (out += d));
-    child.on("close", () => resolve(out.slice(0, 8000)));
-    child.on("error", () => resolve("BioMCP CLI not available"));
-  });
-}
-
-export async function biomcpSearchArticle(query: string): Promise<string> {
-  return callBiomcp("search", ["article", query]);
-}
-
-export async function biomcpGetArticle(id: string): Promise<string> {
-  return callBiomcp("get", ["article", id]);
-}
-
 /**
- * Literature search with a reliable fallback: BioMCP is often unavailable on this host.
- * Prefer qPTM MCP search_literature intent tool.
+ * Search PubTator3 + PubMed esearch + Europe PMC (merged in MCP search_literature).
  */
-export async function searchLiteratureArticles(query: string): Promise<string> {
+export async function searchLiteratureArticles(query: string, limit?: number): Promise<string> {
   const q = (query || "").trim();
   if (!q) return "";
 
-  const viaPubtator = await callQptmTool("search_literature", { query: q, limit: 8 });
-  if (viaPubtator.success || viaPubtator.summary) {
+  const cap = Math.max(1, Math.min(limit || cfg.litSearchLimit, 50));
+  const viaSearch = await callQptmTool("search_literature", { query: q, limit: cap });
+  if (viaSearch.success || viaSearch.summary) {
     const dataStr =
-      typeof viaPubtator.data === "string"
-        ? viaPubtator.data
-        : JSON.stringify(viaPubtator.data ?? {});
-    const blockStr = viaPubtator.blocks ? JSON.stringify(viaPubtator.blocks) : "";
-    const combined = `${viaPubtator.summary || ""}\n${blockStr}\n${dataStr}`;
-    if (/PMID/i.test(combined) || /publication/i.test(viaPubtator.summary || "")) {
-      return combined.slice(0, 8000);
+      typeof viaSearch.data === "string"
+        ? viaSearch.data
+        : JSON.stringify(viaSearch.data ?? {});
+    const blockStr = viaSearch.blocks ? JSON.stringify(viaSearch.blocks) : "";
+    const combined = `${viaSearch.summary || ""}\n${blockStr}\n${dataStr}`;
+    if (/PMID/i.test(combined) || /publication|Merged|esearch|Europe PMC/i.test(viaSearch.summary || "")) {
+      return combined.slice(0, 16000);
+    }
+    if (viaSearch.summary) {
+      return `${viaSearch.summary}\n${JSON.stringify(viaSearch.data ?? {})}`.slice(0, 16000);
     }
   }
+  return viaSearch.summary || "Literature search unavailable";
+}
 
-  const viaBiomcp = await biomcpSearchArticle(q);
-  if (viaBiomcp && !/BioMCP CLI not available|MCP biomcp connect failed|BioMCP error/i.test(viaBiomcp)) {
-    return viaBiomcp;
-  }
-  return viaPubtator.summary
-    ? `${viaPubtator.summary}\n${JSON.stringify(viaPubtator.data ?? {})}`.slice(0, 8000)
-    : viaBiomcp || "Literature search unavailable";
+export function isWebSearchFailure(text: string): boolean {
+  return text.startsWith("Web search failed") || text.startsWith("Web search unavailable");
 }
 
 export async function webSearch(query: string): Promise<string> {
   if (!cfg.tavilyApiKey) {
-    return await biomcpSearchArticle(query);
+    return "Web search unavailable: Tavily not configured";
   }
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), cfg.webSearchTimeoutMs);
@@ -360,6 +308,9 @@ export async function webSearch(query: string): Promise<string> {
       }),
       signal: controller.signal,
     });
+    if (!res.ok) {
+      return `Web search failed: Tavily HTTP ${res.status}`;
+    }
     const data = (await res.json()) as { results?: Array<{ title: string; content: string; url: string }> };
     return (data.results || [])
       .map((r) => `${r.title}\n${r.content}\n${r.url}`)

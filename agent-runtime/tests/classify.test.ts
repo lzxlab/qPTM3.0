@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {
+  ANSWER_LANGUAGE_RULE,
   classifyQueryMode,
+  detectLang,
   extractAccessions,
   gateReply,
   isCollectionRequest,
@@ -55,5 +57,10 @@ assert.match(offEn, /qPTM PTM research assistant/);
 assert.match(offEn, /AKT1 S473/);
 const conceptSteer = gateReply("greeting", "zh") || "";
 assert.match(conceptSteer, /AKT1 S473|TP53 S15/);
+assert.match(conceptSteer, /你好/);
+
+assert.equal(detectLang("哪些激酶磷酸化 AKT1 S473？"), "zh");
+assert.equal(detectLang("Which kinases phosphorylate AKT1 S473?"), "en");
+assert.match(ANSWER_LANGUAGE_RULE, /Chinese only if the user's question is in Chinese/i);
 
 console.log("classify tests passed");

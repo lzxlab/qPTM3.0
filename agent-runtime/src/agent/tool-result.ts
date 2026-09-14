@@ -57,13 +57,21 @@ export function gapScore(outcomes: StepOutcome[]): number {
   return bad / outcomes.length;
 }
 
+export function wantsIntentExpand(args?: Record<string, unknown> | null): boolean {
+  if (!args) return false;
+  if (args.sources != null && String(args.sources).trim()) return true;
+  const limit = Number(args.limit);
+  return Number.isFinite(limit) && limit > 15;
+}
+
 export function mayRecallIntent(
   tool: string,
   emptyTools: ReadonlySet<string>,
   succeededTools: ReadonlySet<string>,
+  opts?: { expand?: boolean },
 ): boolean {
   if (emptyTools.has(tool)) return false;
-  if (succeededTools.has(tool)) return false;
+  if (succeededTools.has(tool) && !opts?.expand) return false;
   return true;
 }
 

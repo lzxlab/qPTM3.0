@@ -51,7 +51,10 @@ TOOL_DATABASES: dict[str, str] = {
     "subcell_scsi": "SubCELL",
     "signalp_prediction": "SignalP",
     "pubtator_literature_search": "PubTator3",
+    "pubmed_esearch": "PubMed",
+    "europepmc_literature_search": "Europe PMC",
     "pubmed_fetch_abstracts": "PubMed",
+    "pubmed_fetch_fulltext": "Europe PMC",
 }
 
 

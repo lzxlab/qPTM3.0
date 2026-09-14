@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import logging
+import re
 from typing import Any, Callable
 
+from concurrent.futures import ThreadPoolExecutor
+
 from app.mcp.formatters import blocks_to_text, format_intent_response, format_tool_block
+from app.tools.pubtator_tools import merge_paper_hits
 from mcp_tools import (
     _build_entities,
     _infer_gene_position,
@@ -17,6 +20,55 @@ from mcp_tools import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_LIMIT = 15
+MAX_LIMIT = 200
+
+_DISEASE_QUERY_RE = re.compile(
+    r"disease|cancer|tumor|tumour|疾病|肿瘤|癌",
+    re.I,
+)
+_STABILITY_QUERY_RE = re.compile(
+    r"stabil|destabil|半衰期|降解",
+    re.I,
+)
+
+SOURCE_TOOL_ALIASES: dict[str, tuple[str, ...]] = {
+    "qptm": ("qptm_kinases", "qptm_site_conditions", "qptm_search"),
+    "psp": ("psp_kinase_substrate", "psp_regulatory", "psp_disease_sites", "psp_ptmvar"),
+    "phosphosite": ("psp_kinase_substrate", "psp_regulatory", "psp_disease_sites", "psp_ptmvar"),
+    "phosphositeplus": ("psp_kinase_substrate", "psp_regulatory", "psp_disease_sites", "psp_ptmvar"),
+    "gps": ("gps6_kinases",),
+    "gps6": ("gps6_kinases",),
+    "iptmnet": ("iptmnet_enzymes", "iptmnet_ptm_ppi"),
+    "ekpi": ("ekpi_kinases", "ekpi_quantitative"),
+    "ubibrowser": ("ubibrowser_interactions",),
+    "gpsuber": ("gpsuber_e3_sites",),
+    "weram": ("weram_regulators",),
+    "kaka": ("kaka_kinase_mutations",),
+}
+
+
+def clamp_limit(limit: int, default: int = DEFAULT_LIMIT) -> int:
+    try:
+        n = int(limit)
+    except (TypeError, ValueError):
+        n = default
+    return max(1, min(n, MAX_LIMIT))
+
+
+def parse_source_filter(sources: str) -> Callable[[str], bool] | None:
+    tokens = [t.strip().lower() for t in re.split(r"[,;/\s]+", sources or "") if t.strip()]
+    if not tokens:
+        return None
+
+    def _ok(tool_name: str) -> bool:
+        tl = tool_name.lower()
+        for tok in tokens:
+            aliases = SOURCE_TOOL_ALIASES.get(tok, ())
+            if tl in aliases or tl == tok or tl.startswith(f"{tok}_"):
+                return True
+        return False
+
+    return _ok
 
 # Intent → underlying registry tools (order matters for presentation).
 INTENT_TOOL_MAP: dict[str, list[tuple[str, str | None]]] = {
@@ -49,6 +101,7 @@ INTENT_TOOL_MAP: dict[str, list[tuple[str, str | None]]] = {
         ("ptm_stability", "experimental"),
         ("funcscore_phosphosite", "curated"),
         ("activedriver_mutations", "curated"),
+        ("qptm_site_conditions", "experimental"),
         ("cancerproteome_disease", "experimental"),
     ],
     "get_llps": [
@@ -84,7 +137,10 @@ INTENT_TOOL_MAP: dict[str, list[tuple[str, str | None]]] = {
     ],
     "search_literature": [
         ("pubtator_literature_search", None),
+        ("pubmed_esearch", None),
+        ("europepmc_literature_search", None),
         ("pubmed_fetch_abstracts", None),
+        ("pubmed_fetch_fulltext", None),
     ],
 }
 
@@ -100,7 +156,7 @@ Use these intent tools (not raw database names):
 - get_drug_ptm — PMADS / DrugBank / decryptM (different evidence types per block)
 - get_localization — compartments, NLS/NES, domains
 - get_ppi_pathways — PTM-dependent PPI and pathways
-- search_literature — PubTator3 / PubMed
+- search_literature — PubTator3 + PubMed esearch + Europe PMC; abstracts via PubMed; OA full text via Europe PMC XML
 
 Each tool returns blocks[] per data source with evidence_level (experimental/curated/predicted/mixed).
 Choose intents by research dimension (regulation, conditions, downstream function, localization) — do not query every tool for every question.
@@ -152,10 +208,20 @@ def _run_tools(
 ) -> tuple[list[dict[str, Any]], list[str]]:
     blocks: list[dict[str, Any]] = []
     summaries: list[str] = []
+    call_entities = dict(entities)
+    call_entities["limit"] = limit
+    query = str(call_entities.get("query") or "")
+    skip_stability = (
+        intent == "get_function_disease"
+        and not _STABILITY_QUERY_RE.search(query)
+        and tool_filter is None
+    )
     for tool_name, tier in INTENT_TOOL_MAP.get(intent, []):
         if tool_filter and not tool_filter(tool_name):
             continue
-        out = _invoke_one(tool_name, entities)
+        if skip_stability and tool_name == "ptm_stability":
+            continue
+        out = _invoke_one(tool_name, call_entities)
         block = format_tool_block(tool_name, out, limit=limit, tier=tier)
         blocks.append(block)
         if out.get("summary"):
@@ -201,17 +267,22 @@ def _intent_multi(
     uniprot_ac: str = "",
     ptm_type: str = "",
     limit: int = DEFAULT_LIMIT,
+    sources: str = "",
     tool_filter: Callable[[str], bool] | None = None,
 ) -> str:
+    limit = clamp_limit(limit)
     entities = _prepare_entities(query, gene, position, uniprot_ac, ptm_type)
+    if intent == "get_function_disease" and _DISEASE_QUERY_RE.search(query or ""):
+        entities["contrast_type"] = "disease"
     resolved = _resolved_dict(entities)
-    blocks, summaries = _run_tools(intent, entities, limit=limit, tool_filter=tool_filter)
+    filt = tool_filter or parse_source_filter(sources)
+    blocks, summaries = _run_tools(intent, entities, limit=limit, tool_filter=filt)
     any_ok = any(b.get("success") and (b.get("rows") or b.get("summary")) for b in blocks)
     payload = format_intent_response(
         intent=intent,
         resolved=resolved,
         blocks=blocks,
-        summary=" | ".join(summaries)[:800] or f"{intent}: no results",
+        summary=" | ".join(summaries) or f"{intent}: no results",
         success=any_ok,
         error_kind=None if any_ok else "empty_result",
     )
@@ -252,42 +323,107 @@ def intent_get_ppi_pathways(**kwargs: Any) -> str:
     return _intent_multi("get_ppi_pathways", **kwargs)
 
 
+def _papers_from_invoke(out: dict[str, Any]) -> list[dict[str, Any]]:
+    data = out.get("data") if isinstance(out, dict) else None
+    if isinstance(data, dict):
+        papers = data.get("papers") or data.get("abstracts")
+        if isinstance(papers, list):
+            return [p for p in papers if isinstance(p, dict)]
+        # classified wrapper sometimes nests the tool payload
+        inner = data.get("data")
+        if isinstance(inner, dict):
+            papers = inner.get("papers") or inner.get("abstracts")
+            if isinstance(papers, list):
+                return [p for p in papers if isinstance(p, dict)]
+    return []
+
+
 def intent_search_literature(
     query: str = "",
     gene: str = "",
     position: int = 0,
     uniprot_ac: str = "",
     ptm_type: str = "",
-    limit: int = 8,
+    limit: int = 20,
     pmids: str = "",
+    fulltext_pmids: str = "",
+    sources: str = "",
+    max_chars: int = 0,
 ) -> str:
     entities = _prepare_entities(query, gene, position, uniprot_ac, ptm_type)
     resolved = _resolved_dict(entities)
     blocks: list[dict[str, Any]] = []
     summaries: list[str] = []
+    limit = clamp_limit(limit, default=20)
 
     lit_query = (query or "").strip() or " ".join(
         x for x in [entities.get("gene"), str(entities.get("position") or ""), ptm_type] if x
     )
-    if lit_query:
-        out = _invoke_one("pubtator_literature_search", {"query": lit_query, "limit": limit})
-        blocks.append(format_tool_block("pubtator_literature_search", out, limit=limit))
-        if out.get("summary"):
-            summaries.append(out["summary"])
-
     pmid_list = [p.strip() for p in re_split_pmids(pmids) if p.strip().isdigit()]
+    ft_list = [p.strip() for p in re_split_pmids(fulltext_pmids) if p.strip().isdigit()]
+    search_payload = {**entities, "query": lit_query, "limit": limit}
+    if lit_query and not pmid_list and not ft_list:
+        names = (
+            "pubtator_literature_search",
+            "pubmed_esearch",
+            "europepmc_literature_search",
+        )
+        results: dict[str, dict[str, Any]] = {}
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futs = {pool.submit(_invoke_one, name, search_payload): name for name in names}
+            for fut, name in futs.items():
+                results[name] = fut.result()
+        for name in names:
+            out = results.get(name) or {}
+            blocks.append(format_tool_block(name, out, limit=limit))
+            if out.get("summary"):
+                summaries.append(str(out["summary"]))
+        merged = merge_paper_hits(
+            _papers_from_invoke(results.get("pubtator_literature_search") or {}),
+            _papers_from_invoke(results.get("pubmed_esearch") or {}),
+            _papers_from_invoke(results.get("europepmc_literature_search") or {}),
+            limit=limit,
+        )
+        if merged:
+            blocks.append(
+                format_tool_block(
+                    "pubtator_literature_search",
+                    {
+                        "success": True,
+                        "summary": f"Merged {len(merged)} unique PMID(s) from PubTator3, PubMed, and Europe PMC",
+                        "data": {"papers": merged, "total": len(merged)},
+                    },
+                    limit=limit,
+                )
+            )
+            summaries.append(f"Merged {len(merged)} unique PMID(s)")
+
+    abs_cap = min(20, max(limit, 10))
+    abs_chars = int(max_chars) if max_chars else 4000
     if pmid_list:
-        out = _invoke_one("pubmed_fetch_abstracts", {"pmids": pmid_list[:5]})
-        blocks.append(format_tool_block("pubmed_fetch_abstracts", out, limit=5))
+        out = _invoke_one(
+            "pubmed_fetch_abstracts",
+            {**entities, "pmids": pmid_list[:abs_cap], "max_chars": abs_chars, "query": lit_query},
+        )
+        blocks.append(format_tool_block("pubmed_fetch_abstracts", out, limit=abs_cap))
         if out.get("summary"):
-            summaries.append(out["summary"])
+            summaries.append(str(out["summary"]))
+
+    if ft_list:
+        out = _invoke_one(
+            "pubmed_fetch_fulltext",
+            {**entities, "pmids": ft_list[:10], "max_chars": 6000, "query": lit_query},
+        )
+        blocks.append(format_tool_block("pubmed_fetch_fulltext", out, limit=10))
+        if out.get("summary"):
+            summaries.append(str(out["summary"]))
 
     any_ok = any(b.get("success") for b in blocks)
     payload = format_intent_response(
         intent="search_literature",
         resolved=resolved,
         blocks=blocks,
-        summary=" | ".join(summaries)[:800] or "Literature search returned no hits",
+        summary=" | ".join(summaries) or "Literature search returned no hits",
         success=any_ok,
         error_kind=None if any_ok else "empty_result",
     )
@@ -295,8 +431,6 @@ def intent_search_literature(
 
 
 def re_split_pmids(pmids: str) -> list[str]:
-    import re
-
     if not pmids:
         return []
     return re.split(r"[\s,;]+", pmids.strip())
@@ -336,8 +470,12 @@ COMMON_PARAMS: dict[str, Any] = {
         },
         "limit": {
             "type": "integer",
-            "description": "Max rows per source block",
+            "description": "Max rows per source block (default 15, max 200)",
             "default": DEFAULT_LIMIT,
+        },
+        "sources": {
+            "type": "string",
+            "description": "Optional comma-separated source filter (e.g. qptm, psp, gps)",
         },
     },
 }
@@ -352,7 +490,7 @@ INTENT_DESCRIPTIONS: dict[str, str] = {
     "get_drug_ptm": "Drug–PTM links: PMADS curated associations, DrugBank targets, decryptM dose–response.",
     "get_localization": "Subcellular localization, NLS/NES motifs, compartments, and structural domains.",
     "get_ppi_pathways": "PTM-dependent PPI, curated interactions, and pathway membership.",
-    "search_literature": "Search PubTator3 or fetch PubMed abstracts by query or PMIDs.",
+    "search_literature": "Search PubTator3, PubMed esearch, and Europe PMC; fetch abstracts by PMID; OA full text via Europe PMC XML.",
 }
 
 
@@ -368,6 +506,14 @@ def intent_tool_definitions() -> list[dict[str, Any]]:
                     "pmids": {
                         "type": "string",
                         "description": "Comma-separated PMIDs to fetch abstracts",
+                    },
+                    "fulltext_pmids": {
+                        "type": "string",
+                        "description": "Comma-separated PMIDs to fetch OA full text",
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Max characters per abstract (default 4000)",
                     },
                 },
             }

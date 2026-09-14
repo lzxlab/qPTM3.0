@@ -29,7 +29,13 @@ _ENTITY_TOOL_MAP: dict[str, list[str]] = {
     "pathway": ["reactome_pathways", "kegg_pathways", "pathbank_pathways"],
     "ppi": ["string_ppi", "iptmnet_ptm_ppi", "ptmint_ppi"],
     "llps": ["ptmphase_llps", "dscope_predictions"],
-    "literature": ["pubtator_literature_search", "pubmed_fetch_abstracts"],
+    "literature": [
+        "pubtator_literature_search",
+        "pubmed_esearch",
+        "europepmc_literature_search",
+        "pubmed_fetch_abstracts",
+        "pubmed_fetch_fulltext",
+    ],
 }
 
 # Tools that typically need UniProt AC (after gene→AC resolve).
@@ -254,7 +260,11 @@ def _missing_for_tool(tool_name: str, entities: dict[str, Any], args: dict[str, 
             missing.append("uniprot_ac")
     if tool_name in _NEEDS_POSITION and not args.get("position") and not entities.get("position"):
         missing.append("position")
-    if tool_name == "pubtator_literature_search" and not args.get("query") and not entities.get("query"):
+    if tool_name in (
+        "pubtator_literature_search",
+        "pubmed_esearch",
+        "europepmc_literature_search",
+    ) and not args.get("query") and not entities.get("query"):
         missing.append("query")
     return missing
 
@@ -289,7 +299,7 @@ def _classify_result(tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
 
     summary = str(result.get("summary") or "")[:800]
     list_counts: list[int] = []
-    for key in ("kinases", "conditions", "events", "entries", "items", "results", "sites"):
+    for key in ("kinases", "conditions", "events", "entries", "items", "results", "sites", "papers", "abstracts"):
         val = result.get(key)
         if isinstance(val, list):
             list_counts.append(len(val))
@@ -460,8 +470,20 @@ def _invoke_one(tool_name: str, entities: dict[str, Any]) -> dict[str, Any]:
     # Put query into entities for infer_tool_arguments — NEVER pass query as state.
     args = infer_tool_arguments(tool_name, entities, None)
     if not args:
-        if tool_name in ("pubtator_literature_search", "pubmed_fetch_abstracts"):
+        if tool_name in (
+            "pubtator_literature_search",
+            "pubmed_esearch",
+            "europepmc_literature_search",
+            "pubmed_fetch_abstracts",
+            "pubmed_fetch_fulltext",
+        ):
             args = {"query": entities.get("query") or entities.get("gene") or ""}
+            if entities.get("pmids") is not None:
+                args["pmids"] = entities.get("pmids")
+            if entities.get("max_chars"):
+                args["max_chars"] = entities.get("max_chars")
+            if entities.get("limit"):
+                args["limit"] = entities.get("limit")
         elif tool_name == "qptm_search":
             args = {
                 "query": entities.get("gene") or entities.get("uniprot_ac") or entities.get("query") or "",
@@ -508,6 +530,28 @@ def _invoke_one(tool_name: str, entities: dict[str, Any]) -> dict[str, Any]:
                     "identity_gene": ident.get("gene"),
                 },
             }
+
+    limit_raw = entities.get("limit")
+    if tool_name == "pubmed_fetch_abstracts":
+        pmids = entities.get("pmids") or args.get("pmids")
+        if pmids:
+            args["pmids"] = pmids
+        if entities.get("max_chars"):
+            args["max_chars"] = entities.get("max_chars")
+        args.pop("query", None)
+    if tool_name == "pubmed_fetch_fulltext":
+        pmids = entities.get("pmids") or entities.get("fulltext_pmids") or args.get("pmids")
+        args = {"pmids": pmids}
+        if entities.get("max_chars"):
+            args["max_chars"] = entities.get("max_chars")
+    if limit_raw not in (None, "", 0, "0"):
+        try:
+            n = max(1, min(int(limit_raw), 200))
+            args["limit"] = n
+            if tool_name == "qptm_search":
+                args["per_page"] = min(50, n)
+        except (TypeError, ValueError):
+            pass
 
     if tool_name in ("qptm_kinases", "qptm_site_conditions"):
         if not args.get("uniprot_ac") or not args.get("position"):

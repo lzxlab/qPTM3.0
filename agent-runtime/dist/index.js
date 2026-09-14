@@ -5,7 +5,7 @@ import { initConversationsDb } from "./storage/conversations.js";
 import { initQptmMcp } from "./mcp/hub.js";
 async function main() {
     initConversationsDb();
-    // Warm qPTM MCP in background — never block HTTP on BioMCP.
+    // Warm qPTM MCP in background — do not block HTTP on MCP connect.
     initQptmMcp().catch((e) => console.warn("qPTM MCP preload failed:", e));
     serve({
         fetch: app.fetch,

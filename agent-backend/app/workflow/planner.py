@@ -2216,11 +2216,15 @@ def infer_tool_arguments(
     if tool_name == "qptm_site_conditions":
         if not (uniprot and position):
             return {}
-        return {
+        args: dict[str, Any] = {
             "uniprot_ac": uniprot,
             "position": position,
             "ptm_type": ptm_type,
         }
+        ctype = str(entities.get("contrast_type") or "").strip().lower()
+        if ctype:
+            args["contrast_type"] = ctype
+        return args
 
     if tool_name == "qptm_kinases":
         if not (uniprot and position):
@@ -2533,7 +2537,31 @@ def infer_tool_arguments(
     if tool_name == "pubtator_literature_search":
         return {
             "query": _build_pubtator_query(entities, query or ""),
-            "limit": 8,
+            "limit": 20,
         }
+
+    if tool_name in ("pubmed_esearch", "europepmc_literature_search"):
+        q = (query or entities.get("query") or "").strip()
+        if not q:
+            return {}
+        return {"query": q, "limit": 20}
+
+    if tool_name == "pubmed_fetch_abstracts":
+        pmids = entities.get("pmids")
+        if not pmids:
+            return {}
+        args: dict[str, Any] = {"pmids": pmids}
+        if entities.get("max_chars"):
+            args["max_chars"] = entities["max_chars"]
+        return args
+
+    if tool_name == "pubmed_fetch_fulltext":
+        pmids = entities.get("pmids") or entities.get("fulltext_pmids")
+        if not pmids:
+            return {}
+        args = {"pmids": pmids}
+        if entities.get("max_chars"):
+            args["max_chars"] = entities["max_chars"]
+        return args
 
     return {"query": query}

@@ -5,6 +5,7 @@ import {
   isEmptyToolResult,
   mayRecallIntent,
   toStepOutcome,
+  wantsIntentExpand,
 } from "../src/agent/tool-result.js";
 import type { QptmToolResult } from "../src/mcp/hub.js";
 
@@ -48,6 +49,11 @@ const emptySet = new Set(["get_site_conditions"]);
 const okSet = new Set(["get_upstream_enzymes"]);
 assert.equal(mayRecallIntent("get_site_conditions", emptySet, okSet), false);
 assert.equal(mayRecallIntent("get_upstream_enzymes", emptySet, okSet), false);
+assert.equal(mayRecallIntent("get_upstream_enzymes", emptySet, okSet, { expand: true }), true);
 assert.equal(mayRecallIntent("get_function_disease", emptySet, okSet), true);
+assert.equal(wantsIntentExpand({ limit: 200 }), true);
+assert.equal(wantsIntentExpand({ sources: "qptm" }), true);
+assert.equal(wantsIntentExpand({ limit: 15 }), false);
+assert.equal(wantsIntentExpand({}), false);
 
 console.log("dr-tool-result.test.ts: ok");

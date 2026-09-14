@@ -1,4 +1,17 @@
 export type ArtifactKind = "literature_search" | "paper" | "db_result" | "web_search" | "plan" | "clarification";
+export interface DbBlockPayload {
+    tool?: string;
+    source?: string;
+    evidence_level?: string;
+    total: number;
+    shown: number;
+    truncated: boolean;
+    rows: Record<string, unknown>[];
+}
+export interface ArtifactPayload {
+    intent?: string;
+    blocks: DbBlockPayload[];
+}
 export interface Artifact {
     id: string;
     kind: ArtifactKind;
@@ -8,8 +21,14 @@ export interface Artifact {
     arguments?: Record<string, unknown>;
     pmids?: string[];
     rawRef?: string;
+    payload?: ArtifactPayload;
     createdAt: string;
 }
+/** Compact MCP intent blocks so sessions can list last-query hits. */
+export declare function compactDbPayload(result: {
+    intent?: string;
+    blocks?: unknown[];
+}): ArtifactPayload | undefined;
 export declare class ArtifactStore {
     private artifacts;
     private counter;
@@ -18,12 +37,23 @@ export declare class ArtifactStore {
     get(id: string): Artifact | undefined;
     findLiterature(): Artifact[];
     findDbResults(): Artifact[];
+    findWebSearch(): Artifact[];
+    /** Kinase / gene-like names from compact DB rows for BFS→DFS frontier. */
+    frontierEntities(max?: number, exclude?: string[]): string[];
+    hasLiteratureQuery(q: string): boolean;
     catalogForPrompt(max?: number, opts?: {
         skipEmpty?: boolean;
     }): string;
+    /** Full compact rows for listing / synthesis — not the 200-char catalog. */
+    rowsForPrompt(maxChars?: number): string;
+    /** Compact briefing for the supervisor (counts + preview names). */
+    priorEvidenceForSupervisor(maxChars?: number): string;
+    dbRowCount(tool?: string): number;
     load(list: Artifact[]): void;
     toJSON(): Artifact[];
     clear(): void;
     shouldSkipLiteratureSearch(message: string): boolean;
     getLiteratureContext(): string;
+    /** Secondary web snippets for DR synthesis — smaller budget than DB/literature. */
+    getWebSearchContext(maxChars?: number): string;
 }
