@@ -271,61 +271,9 @@ def _missing_for_tool(tool_name: str, entities: dict[str, Any], args: dict[str, 
 
 def _classify_result(tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
     """Normalize tool result with success / error_kind."""
-    if not isinstance(result, dict):
-        return {
-            "success": True,
-            "error_kind": None,
-            "summary": str(result)[:800],
-            "data": result,
-        }
+    from app.mcp.classify import classify_tool_result
 
-    err = result.get("error")
-    if err:
-        err_s = str(err)
-        kind = "tool_error"
-        http_status = result.get("http_status")
-        if http_status in (400, 401, 403, 404, 500, 502, 503):
-            kind = "http_error"
-        if "target_uniprot_ac" in err_s or "unexpected keyword" in err_s:
-            kind = "call_bug"
-        elif "Provide" in err_s or "Missing" in err_s or "required" in err_s.lower():
-            kind = "missing_params"
-        return {
-            "success": False,
-            "error_kind": kind,
-            "summary": err_s[:500],
-            "data": result,
-        }
-
-    summary = str(result.get("summary") or "")[:800]
-    list_counts: list[int] = []
-    for key in ("kinases", "conditions", "events", "entries", "items", "results", "sites", "papers", "abstracts"):
-        val = result.get(key)
-        if isinstance(val, list):
-            list_counts.append(len(val))
-    numeric_counts = [
-        result.get("count"),
-        result.get("total"),
-        result.get("n"),
-        result.get("total_conditions"),
-        *list_counts,
-    ]
-    countish = next((c for c in numeric_counts if c is not None and c != ""), None)
-    empty = countish in (0, "0") or (list_counts and all(c == 0 for c in list_counts))
-    if empty:
-        return {
-            "success": True,
-            "error_kind": "empty_result",
-            "summary": summary or f"{tool_name}: no matching records",
-            "data": result,
-        }
-
-    return {
-        "success": True,
-        "error_kind": None,
-        "summary": summary or f"{tool_name} completed",
-        "data": result,
-    }
+    return classify_tool_result(tool_name, result)
 
 
 def qptm_resolve(
@@ -506,30 +454,19 @@ def _invoke_one(tool_name: str, entities: dict[str, Any]) -> dict[str, Any]:
                 "data": None,
             }
 
+    from app.tools.identity_guard import check_gene_accession_mismatch
+
     gene_arg = args.get("gene") or entities.get("gene")
     ac_arg = args.get("uniprot_ac") or entities.get("uniprot_ac")
-    if gene_arg and ac_arg:
-        ident = None
-        try:
-            ident = lookup_by_accession(str(ac_arg))
-        except Exception:
-            ident = None
-        if ident and not gene_matches_identity(str(gene_arg), ident):
-            return {
-                "success": False,
-                "error_kind": "identity_mismatch",
-                "summary": (
-                    f"Refused {tool_name}: gene={gene_arg} is not consistent with "
-                    f"UniProt {ac_arg} ({ident.get('gene') or 'unknown'}). "
-                    "Re-resolve the target before querying databases."
-                ),
-                "missing": [],
-                "data": {
-                    "gene": gene_arg,
-                    "uniprot_ac": ac_arg,
-                    "identity_gene": ident.get("gene"),
-                },
-            }
+    mismatch = check_gene_accession_mismatch(gene_arg, ac_arg, tool_name=tool_name)
+    if mismatch:
+        return {
+            "success": False,
+            "error_kind": "identity_mismatch",
+            "summary": mismatch.get("summary") or mismatch.get("error"),
+            "missing": [],
+            "data": mismatch,
+        }
 
     limit_raw = entities.get("limit")
     if tool_name == "pubmed_fetch_abstracts":

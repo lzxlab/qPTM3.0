@@ -247,12 +247,12 @@ def format_intent_response(
     error_kind: str | None = None,
     missing: list[str] | None = None,
 ) -> dict[str, Any]:
-    any_ok = success and any(b.get("success") and b.get("rows") for b in blocks)
-    if not any_ok and blocks:
-        any_ok = any(b.get("success") for b in blocks)
+    from app.mcp.classify import rollup_intent_status
+
+    rolled_ok, rolled_kind = rollup_intent_status(blocks, success=success, error_kind=error_kind)
     return {
-        "success": any_ok if blocks else success,
-        "error_kind": error_kind,
+        "success": rolled_ok if blocks else success,
+        "error_kind": rolled_kind if blocks else error_kind,
         "summary": _clip_summary(summary, 800),
         "missing": missing or [],
         "intent": intent,

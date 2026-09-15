@@ -67,6 +67,20 @@ export async function* runAgent(opts) {
         maxClarifyRounds: MAX_CLARIFY_ROUNDS,
         skippedClarify,
     });
+    yield setPhase(session, AgentPhase.routing, "Routing the question");
+    yield {
+        type: "route_decision",
+        handler: decision.handler,
+        query_mode: queryMode,
+        specific_enough: decision.specificEnough,
+        may_clarify: decision.mayClarify,
+        entities: {
+            gene: session.memory.gene || "",
+            position: session.memory.position || 0,
+            uniprot_ac: session.memory.uniprot_ac || "",
+            pmid: session.memory.pmid || "",
+        },
+    };
     if (decision.handler === "qa_direct") {
         yield* runQA(userMessage, opts.history, session);
         return;

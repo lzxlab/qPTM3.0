@@ -9,7 +9,13 @@ export type AgentEventType =
   | "plan_created"
   | "done"
   | "error"
-  | "literature_search";
+  | "literature_search"
+  | "route_decision"
+  | "supervisor_decision"
+  | "step_started"
+  | "step_completed"
+  | "synthesis_started"
+  | "report_thought";
 
 export interface AgentEvent {
   type: AgentEventType | string;
@@ -69,6 +75,41 @@ export function agentEventToSse(event: AgentEvent): string | null {
         papers_found: event.papers_found || 0,
         elapsed_s: event.elapsed_s || 0,
       });
+    case "route_decision":
+      return sseFormat("route_decision", {
+        handler: event.handler || "",
+        query_mode: event.query_mode || "",
+        specific_enough: Boolean(event.specific_enough),
+        may_clarify: Boolean(event.may_clarify),
+        entities: event.entities || {},
+      });
+    case "supervisor_decision":
+      return sseFormat("supervisor_decision", {
+        round: event.round,
+        actions: event.actions || [],
+        rationale: event.rationale || "",
+        gap_score: event.gap_score,
+        outcomes_summary: event.outcomes_summary || "",
+        finish_accepted: event.finish_accepted,
+      });
+    case "step_started":
+      return sseFormat("step_started", {
+        step: event.step,
+        title: event.title || "",
+        status: "running",
+      });
+    case "step_completed":
+      return sseFormat("step_completed", {
+        step: event.step,
+        title: event.title || "",
+        status: event.status || "done",
+      });
+    case "synthesis_started":
+      return sseFormat("synthesis_started", {
+        evidence: event.evidence || {},
+      });
+    case "report_thought":
+      return sseFormat("report_thought", { content: event.content || "" });
     default:
       return null;
   }

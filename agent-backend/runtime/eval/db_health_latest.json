@@ -1,0 +1,832 @@
+{
+  "started": "2026-09-14T14:21:23Z",
+  "elapsed_s": 11.8,
+  "workers": 1,
+  "timeout_s": 40.0,
+  "n_probes": 6,
+  "n_cases": 43,
+  "cases": {
+    "tp53_s15": {
+      "label": "TP53 p.Ser15 phosphorylation (human)",
+      "tags": [
+        "core",
+        "phospho",
+        "site",
+        "human",
+        "kinase"
+      ]
+    },
+    "tp53_protein": {
+      "label": "TP53 protein-level (no site) — typical agent fan-out",
+      "tags": [
+        "core",
+        "protein",
+        "human"
+      ]
+    },
+    "tp53_k382": {
+      "label": "TP53 p.Lys382 acetylation",
+      "tags": [
+        "acetyl",
+        "site",
+        "human"
+      ]
+    },
+    "tp53_ub": {
+      "label": "TP53 ubiquitination K120 (MDM2 axis; site often missing in GPS-Uber)",
+      "tags": [
+        "ub",
+        "site",
+        "human"
+      ]
+    },
+    "tp53_ub_k101": {
+      "label": "TP53 ubiquitination K101 (present in GPS-Uber dump)",
+      "tags": [
+        "ub",
+        "site",
+        "human"
+      ]
+    },
+    "yap1_s127": {
+      "label": "YAP1 p.Ser127 (Hippo localization switch)",
+      "tags": [
+        "core",
+        "phospho",
+        "site",
+        "human",
+        "llps"
+      ]
+    },
+    "kras_s39": {
+      "label": "KRAS p.Ser39 / nearby disease variants",
+      "tags": [
+        "disease",
+        "site",
+        "human"
+      ]
+    },
+    "egfr_drug": {
+      "label": "EGFR Y1197 drug–PTM / kinase context",
+      "tags": [
+        "drug",
+        "site",
+        "human",
+        "membrane"
+      ]
+    },
+    "egfr_protein": {
+      "label": "EGFR protein-level (no site) — drug / PPI fan-out",
+      "tags": [
+        "drug",
+        "protein",
+        "human",
+        "membrane"
+      ]
+    },
+    "braf_v600e": {
+      "label": "BRAF V600E kinase activity (KAKA)",
+      "tags": [
+        "mutation",
+        "kinase",
+        "human"
+      ]
+    },
+    "egfr_l858r": {
+      "label": "EGFR L858R kinase-activity mutation (KAKA)",
+      "tags": [
+        "mutation",
+        "kinase",
+        "human"
+      ]
+    },
+    "ep300_ac": {
+      "label": "EP300 histone acetyltransferase (WERAM writer)",
+      "tags": [
+        "acetyl",
+        "writer",
+        "human"
+      ]
+    },
+    "hdac1_eraser": {
+      "label": "HDAC1 histone deacetylase (WERAM eraser)",
+      "tags": [
+        "acetyl",
+        "eraser",
+        "human"
+      ]
+    },
+    "fus_llps": {
+      "label": "FUS phase separation",
+      "tags": [
+        "llps",
+        "human"
+      ]
+    },
+    "tardbp_llps": {
+      "label": "TARDBP / TDP-43 phase separation",
+      "tags": [
+        "llps",
+        "human"
+      ]
+    },
+    "sumo_tp53": {
+      "label": "TP53 SUMOylation K386 (GPS-SUMO 2.0)",
+      "tags": [
+        "sumo",
+        "site",
+        "human"
+      ]
+    },
+    "nfkbia_s32": {
+      "label": "NFKBIA p.Ser32 (IκBα degron)",
+      "tags": [
+        "phospho",
+        "site",
+        "human",
+        "degron"
+      ]
+    },
+    "ctnnb1_s33": {
+      "label": "CTNNB1 p.Ser33 (β-catenin degron)",
+      "tags": [
+        "phospho",
+        "site",
+        "human",
+        "degron"
+      ]
+    },
+    "stat3_y705": {
+      "label": "STAT3 p.Tyr705 (canonical activation)",
+      "tags": [
+        "phospho",
+        "site",
+        "human",
+        "tyrosine"
+      ]
+    },
+    "akt1_s473": {
+      "label": "AKT1 p.Ser473 (mTORC2 activation)",
+      "tags": [
+        "phospho",
+        "site",
+        "human"
+      ]
+    },
+    "myc_t58": {
+      "label": "MYC p.Thr58 (GSK3 / stability)",
+      "tags": [
+        "phospho",
+        "site",
+        "human"
+      ]
+    },
+    "mapk1_y187": {
+      "label": "MAPK1 p.Tyr187 (ERK2 activation loop)",
+      "tags": [
+        "phospho",
+        "site",
+        "human",
+        "tyrosine"
+      ]
+    },
+    "src_y419": {
+      "label": "SRC p.Tyr419 (kinase activation)",
+      "tags": [
+        "phospho",
+        "site",
+        "human",
+        "tyrosine"
+      ]
+    },
+    "brca1_ub": {
+      "label": "BRCA1 ubiquitination (DNA-damage E3)",
+      "tags": [
+        "ub",
+        "protein",
+        "human",
+        "disease"
+      ]
+    },
+    "h3_k27me": {
+      "label": "Histone H3.1 K27 methylation (H3C1 / P68431)",
+      "tags": [
+        "methyl",
+        "histone",
+        "site",
+        "human"
+      ]
+    },
+    "gapdh_metabolic": {
+      "label": "GAPDH metabolic / PathBank context",
+      "tags": [
+        "protein",
+        "human",
+        "pathway"
+      ]
+    },
+    "ins_secreted": {
+      "label": "INS secreted peptide (signal peptide / extracellular)",
+      "tags": [
+        "protein",
+        "human",
+        "secreted"
+      ]
+    },
+    "lmna_nuclear": {
+      "label": "LMNA nuclear lamina (NLS / envelope)",
+      "tags": [
+        "protein",
+        "human",
+        "nuclear"
+      ]
+    },
+    "pten_s380": {
+      "label": "PTEN p.Ser380 (C-tail cluster)",
+      "tags": [
+        "phospho",
+        "site",
+        "human",
+        "disease"
+      ]
+    },
+    "gps6_rsph1": {
+      "label": "RSPH1 S2 (present in GPS 6.0 local dump; TP53 is not)",
+      "tags": [
+        "phospho",
+        "site",
+        "human",
+        "gps6"
+      ]
+    },
+    "dbptm_trfe": {
+      "label": "TRFE / P02787 (present in dbPTM disease TSV)",
+      "tags": [
+        "disease",
+        "human",
+        "dbptm"
+      ]
+    },
+    "literature": {
+      "label": "Literature: TP53 Ser15 + known PMIDs",
+      "tags": [
+        "literature"
+      ]
+    },
+    "literature_brca": {
+      "label": "Literature: BRCA1 DNA-damage (different topic / PMIDs)",
+      "tags": [
+        "literature"
+      ]
+    },
+    "literature_pmid_bad": {
+      "label": "Literature: bogus PMID (should not crash)",
+      "tags": [
+        "literature",
+        "adversarial"
+      ]
+    },
+    "mouse_trp53": {
+      "label": "Mouse Trp53 / P02340 (non-human organism)",
+      "tags": [
+        "organism",
+        "mouse",
+        "protein"
+      ]
+    },
+    "yeast_cdc28": {
+      "label": "Yeast CDC28 / CDK1 (Saccharomyces cerevisiae)",
+      "tags": [
+        "organism",
+        "yeast",
+        "protein"
+      ]
+    },
+    "isoform_tp53": {
+      "label": "TP53 isoform accession P04637-2",
+      "tags": [
+        "isoform",
+        "human",
+        "adversarial"
+      ]
+    },
+    "alias_p53": {
+      "label": "Alias / lowercase gene symbol p53 (no accession)",
+      "tags": [
+        "alias",
+        "adversarial"
+      ]
+    },
+    "accession_only": {
+      "label": "UniProt-only P04637 (no gene symbol)",
+      "tags": [
+        "identity",
+        "adversarial"
+      ]
+    },
+    "identity_mismatch": {
+      "label": "Stale identity: gene=STAT3 + AC=P04637 (TP53)",
+      "tags": [
+        "identity",
+        "adversarial"
+      ]
+    },
+    "position_only": {
+      "label": "Site without protein (position=15 only)",
+      "tags": [
+        "adversarial"
+      ]
+    },
+    "erlotinib_only": {
+      "label": "Drug name only (no gene) — decryptM/PMADS routing",
+      "tags": [
+        "drug",
+        "adversarial"
+      ]
+    },
+    "negative": {
+      "label": "Negative control (non-gene)",
+      "tags": [
+        "adversarial"
+      ]
+    }
+  },
+  "preflight": {
+    "tools_registered": [
+      "activedriver_kinase_network",
+      "activedriver_mutations",
+      "biogrid_interactions",
+      "cancerproteome_disease",
+      "compartments_localization",
+      "dbptm_functional",
+      "decryptm_drug_ptm",
+      "drugbank_targets",
+      "dscope_literature",
+      "dscope_predictions",
+      "ekpi_kinases",
+      "ekpi_quantitative",
+      "europepmc_literature_search",
+      "funcscore_phosphosite",
+      "gps6_kinases",
+      "gpssumo2_sites",
+      "gpsuber_e3_sites",
+      "intact_interactions",
+      "interpro_domains",
+      "inuloc_nls_nes",
+      "inuloc_nuclear_prob",
+      "iptmnet_enzymes",
+      "iptmnet_ptm_ppi",
+      "kaka_kinase_mutations",
+      "kegg_pathways",
+      "pathbank_pathways",
+      "pfam_domains",
+      "pmads_drug_ptm",
+      "psp_disease_sites",
+      "psp_kinase_substrate",
+      "psp_ptmvar",
+      "psp_regulatory",
+      "ptm_stability",
+      "ptmcode_associations",
+      "ptmd_disease",
+      "ptmint_ppi",
+      "ptmphase_llps",
+      "ptmphase_phosllps",
+      "pubmed_esearch",
+      "pubmed_fetch_abstracts",
+      "pubmed_fetch_fulltext",
+      "pubtator_literature_search",
+      "qptm_kinases",
+      "qptm_search",
+      "qptm_site_conditions",
+      "reactome_pathways",
+      "signalp_prediction",
+      "string_ppi",
+      "subcell_scsi",
+      "ubibrowser_interactions",
+      "uniprot_annotation",
+      "weram_regulators"
+    ],
+    "tool_count": 52,
+    "metadata_tools": [
+      "activedriver_kinase_network",
+      "activedriver_mutations",
+      "biogrid_interactions",
+      "cancerproteome_disease",
+      "compartments_localization",
+      "dbptm_functional",
+      "decryptm_drug_ptm",
+      "drugbank_targets",
+      "dscope_literature",
+      "dscope_predictions",
+      "ekpi_kinases",
+      "ekpi_quantitative",
+      "europepmc_literature_search",
+      "funcscore_phosphosite",
+      "gps6_kinases",
+      "gpssumo2_sites",
+      "gpsuber_e3_sites",
+      "intact_interactions",
+      "interpro_domains",
+      "inuloc_nls_nes",
+      "inuloc_nuclear_prob",
+      "iptmnet_enzymes",
+      "iptmnet_ptm_ppi",
+      "kaka_kinase_mutations",
+      "kegg_pathways",
+      "pathbank_pathways",
+      "pfam_domains",
+      "pmads_drug_ptm",
+      "psp_disease_sites",
+      "psp_kinase_substrate",
+      "psp_ptmvar",
+      "psp_regulatory",
+      "ptm_stability",
+      "ptmcode_associations",
+      "ptmd_disease",
+      "ptmint_ppi",
+      "ptmphase_llps",
+      "pubmed_esearch",
+      "pubmed_fetch_abstracts",
+      "pubmed_fetch_fulltext",
+      "pubtator_literature_search",
+      "qptm_kinases",
+      "qptm_search",
+      "qptm_site_conditions",
+      "reactome_pathways",
+      "signalp_prediction",
+      "string_ppi",
+      "subcell_scsi",
+      "ubibrowser_interactions",
+      "uniprot_annotation",
+      "weram_regulators"
+    ],
+    "signalp_registered": true,
+    "biogrid_key_set": true,
+    "ncbi_api_key_set": false,
+    "qptm_api": "https://qptm3.omicsbio.info/api",
+    "stability_tsv": {
+      "path": "data/stability/curated/ptm_stability_curated.tsv",
+      "exists": true
+    },
+    "dbptm_dir": {
+      "path": "data/disease/dbptm",
+      "exists": true,
+      "files": [
+        "SOURCE.yaml",
+        "disease_associated_ptms.tsv"
+      ]
+    },
+    "ekpi_matrices": {
+      "path": "/var/www/html/ekpi/final_result",
+      "exists": true
+    },
+    "indexes_missing": [],
+    "index_total": 45,
+    "index_present": 43
+  },
+  "overall_counts": {
+    "ok": 1
+  },
+  "tools": [
+    {
+      "tool": "string_ppi",
+      "database": "STRING",
+      "configured": true,
+      "overall": "ok",
+      "n_cases": 6,
+      "ok_cases": 5,
+      "max_rows": 20,
+      "max_latency_ms": 3497,
+      "statuses": [
+        "ok",
+        "ok",
+        "identity_mismatch",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      "verdicts": [
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass",
+        "pass"
+      ]
+    }
+  ],
+  "probes": [
+    {
+      "tool": "string_ppi",
+      "database": "STRING",
+      "case": "egfr_protein",
+      "case_label": "EGFR protein-level (no site) — drug / PPI fan-out",
+      "via": "registry",
+      "args": {
+        "organism": "human",
+        "gene": "EGFR",
+        "uniprot_ac": "P00533",
+        "network_type": "physical",
+        "required_score": 400
+      },
+      "status": "ok",
+      "latency_ms": 2316,
+      "summary": "STRING: 20 interaction(s) for EGFR (taxon 9606, score≥400, physical): EGFR–CBL (score=0.999, exp=0.788; physical) — E3 ubiquitin-protein ligase CBL; Adapter protein that functions as a negative regulator of many signaling pathways that are triggered by activation of cell surface receptors. Acts as an E3… EGFR–TGFA (score=0.999, exp=0.964; physical) — Protransforming growth factor alpha; TGF alpha ",
+      "rows": 20,
+      "classified_error_kind": null,
+      "success_flag": true,
+      "expect": "hit",
+      "verdict": "pass",
+      "notes": [],
+      "sample": [
+        {
+          "interactor_a": "EGFR",
+          "interactor_b": "CBL",
+          "partner": "CBL",
+          "partner_annotation": "E3 ubiquitin-protein ligase CBL; Adapter protein that functions as a negative regulator of many signaling pathways that are triggered by activation of cell surface receptors. Acts as an E3…",
+          "score": 0.999,
+          "experimental_score": 0.788,
+          "database_score": 0.8,
+          "textmining_score": 0.984,
+          "coexpression_score": 0,
+          "network_type": "physical",
+          "note": "EGFR–CBL (score=0.999, exp=0.788; physical) — E3 ubiquitin-protein ligase CBL; Adapter protein that functions as a negative regulator of many signaling pathways that are triggered by activation of cell surface receptors. Acts as an E3…",
+          "source_db": "STRING",
+          "taxon_id": 9606,
+          "url": "https://string-db.org/network/9606/CBL"
+        },
+        {
+          "interactor_a": "EGFR",
+          "interactor_b": "TGFA",
+          "partner": "TGFA",
+          "partner_annotation": "Protransforming growth factor alpha; TGF alpha is a mitogenic polypeptide that is able to bind to the EGF receptor/EGFR and to act synergistically with TGF beta to promote anchorage-independent cell…",
+          "score": 0.999,
+          "experimental_score": 0.964,
+          "database_score": 0.4,
+          "textmining_score": 0.982,
+          "coexpression_score": 0,
+          "network_type": "physical",
+          "note": "EGFR–TGFA (score=0.999, exp=0.964; physical) — Protransforming growth factor alpha; TGF alpha is a mitogenic polypeptide that is able to bind to the EGF receptor/EGFR and to act synergistically with TGF beta to promote anchorage-independent cell…",
+          "source_db": "STRING",
+          "taxon_id": 9606,
+          "url": "https://string-db.org/network/9606/TGFA"
+        }
+      ]
+    },
+    {
+      "tool": "string_ppi",
+      "database": "STRING",
+      "case": "gapdh_metabolic",
+      "case_label": "GAPDH metabolic / PathBank context",
+      "via": "registry",
+      "args": {
+        "organism": "human",
+        "gene": "GAPDH",
+        "uniprot_ac": "P04406",
+        "network_type": "physical",
+        "required_score": 400
+      },
+      "status": "ok",
+      "latency_ms": 1902,
+      "summary": "STRING: 20 interaction(s) for GAPDH (taxon 9606, score≥400, physical): GAPDH–SYNCRIP (score=0.998; physical) — Heterogeneous nuclear ribonucleoprotein Q; Heterogenous nuclear ribonucleoprotein (hnRNP) implicated in mRNA processing mechanisms. Component of the CRD-mediated complex that promotes MYC mRNA… GAPDH–RPL13A (score=0.998, exp=0.041; physical) — 60S ribosomal protein L13a; Associated with r",
+      "rows": 20,
+      "classified_error_kind": null,
+      "success_flag": true,
+      "expect": "any",
+      "verdict": "pass",
+      "notes": [],
+      "sample": [
+        {
+          "interactor_a": "GAPDH",
+          "interactor_b": "SYNCRIP",
+          "partner": "SYNCRIP",
+          "partner_annotation": "Heterogeneous nuclear ribonucleoprotein Q; Heterogenous nuclear ribonucleoprotein (hnRNP) implicated in mRNA processing mechanisms. Component of the CRD-mediated complex that promotes MYC mRNA…",
+          "score": 0.998,
+          "experimental_score": 0,
+          "database_score": 0.9,
+          "textmining_score": 0.982,
+          "coexpression_score": 0,
+          "network_type": "physical",
+          "note": "GAPDH–SYNCRIP (score=0.998; physical) — Heterogeneous nuclear ribonucleoprotein Q; Heterogenous nuclear ribonucleoprotein (hnRNP) implicated in mRNA processing mechanisms. Component of the CRD-mediated complex that promotes MYC mRNA…",
+          "source_db": "STRING",
+          "taxon_id": 9606,
+          "url": "https://string-db.org/network/9606/SYNCRIP"
+        },
+        {
+          "interactor_a": "GAPDH",
+          "interactor_b": "RPL13A",
+          "partner": "RPL13A",
+          "partner_annotation": "60S ribosomal protein L13a; Associated with ribosomes but is not required for canonical ribosome function and has extra-ribosomal functions. Component of the GAIT (gamma interferon-activated…",
+          "score": 0.998,
+          "experimental_score": 0.041,
+          "database_score": 0.9,
+          "textmining_score": 0.984,
+          "coexpression_score": 0,
+          "network_type": "physical",
+          "note": "GAPDH–RPL13A (score=0.998, exp=0.041; physical) — 60S ribosomal protein L13a; Associated with ribosomes but is not required for canonical ribosome function and has extra-ribosomal functions. Component of the GAIT (gamma interferon-activated…",
+          "source_db": "STRING",
+          "taxon_id": 9606,
+          "url": "https://string-db.org/network/9606/RPL13A"
+        }
+      ]
+    },
+    {
+      "tool": "string_ppi",
+      "database": "STRING",
+      "case": "identity_mismatch",
+      "case_label": "Stale identity: gene=STAT3 + AC=P04637 (TP53)",
+      "via": "invoke",
+      "args": {
+        "organism": "human",
+        "gene": "STAT3",
+        "uniprot_ac": "P04637",
+        "network_type": "physical",
+        "required_score": 400
+      },
+      "status": "identity_mismatch",
+      "latency_ms": 0,
+      "summary": "Gene STAT3 does not match UniProt P04637 (canonical gene: TP53).",
+      "rows": 0,
+      "classified_error_kind": "identity_mismatch",
+      "success_flag": false,
+      "expect": "mismatch",
+      "verdict": "pass",
+      "notes": [
+        "refused stale gene↔accession pair"
+      ]
+    },
+    {
+      "tool": "string_ppi",
+      "database": "STRING",
+      "case": "tp53_s15",
+      "case_label": "TP53 p.Ser15 phosphorylation (human)",
+      "via": "registry",
+      "args": {
+        "organism": "human",
+        "gene": "TP53",
+        "uniprot_ac": "P04637",
+        "network_type": "physical",
+        "required_score": 400
+      },
+      "status": "ok",
+      "latency_ms": 3497,
+      "summary": "STRING: 20 interaction(s) for TP53 (taxon 9606, score≥400, physical): TP53–EP300 (score=0.999, exp=0.964; physical) — Histone acetyltransferase p300; Functions as histone acetyltransferase and regulates transcription via chromatin remodeling. Acetylates all four core histones in nucleosomes. Histone acetylation… TP53–CREBBP (score=0.999, exp=0.96; physical) — CREB-binding protein; Acetylates histo",
+      "rows": 20,
+      "classified_error_kind": null,
+      "success_flag": true,
+      "expect": "hit",
+      "verdict": "pass",
+      "notes": [],
+      "check": "mentions_mdm2",
+      "sample": [
+        {
+          "interactor_a": "TP53",
+          "interactor_b": "EP300",
+          "partner": "EP300",
+          "partner_annotation": "Histone acetyltransferase p300; Functions as histone acetyltransferase and regulates transcription via chromatin remodeling. Acetylates all four core histones in nucleosomes. Histone acetylation…",
+          "score": 0.999,
+          "experimental_score": 0.964,
+          "database_score": 0.5,
+          "textmining_score": 0.982,
+          "coexpression_score": 0,
+          "network_type": "physical",
+          "note": "TP53–EP300 (score=0.999, exp=0.964; physical) — Histone acetyltransferase p300; Functions as histone acetyltransferase and regulates transcription via chromatin remodeling. Acetylates all four core histones in nucleosomes. Histone acetylation…",
+          "source_db": "STRING",
+          "taxon_id": 9606,
+          "url": "https://string-db.org/network/9606/EP300"
+        },
+        {
+          "interactor_a": "TP53",
+          "interactor_b": "CREBBP",
+          "partner": "CREBBP",
+          "partner_annotation": "CREB-binding protein; Acetylates histones, giving a specific tag for transcriptional activation. Also acetylates non- histone proteins, like DDX21, FBL, IRF2, MAFG, NCOA3, POLR1E/PAF53 and FOXO1.…",
+          "score": 0.999,
+          "experimental_score": 0.96,
+          "database_score": 0.7,
+          "textmining_score": 0.982,
+          "coexpression_score": 0,
+          "network_type": "physical",
+          "note": "TP53–CREBBP (score=0.999, exp=0.96; physical) — CREB-binding protein; Acetylates histones, giving a specific tag for transcriptional activation. Also acetylates non- histone proteins, like DDX21, FBL, IRF2, MAFG, NCOA3, POLR1E/PAF53 and FOXO1.…",
+          "source_db": "STRING",
+          "taxon_id": 9606,
+          "url": "https://string-db.org/network/9606/CREBBP"
+        }
+      ]
+    },
+    {
+      "tool": "string_ppi",
+      "database": "STRING",
+      "case": "yap1_s127",
+      "case_label": "YAP1 p.Ser127 (Hippo localization switch)",
+      "via": "registry",
+      "args": {
+        "organism": "human",
+        "gene": "YAP1",
+        "uniprot_ac": "P46937",
+        "network_type": "physical",
+        "required_score": 400
+      },
+      "status": "ok",
+      "latency_ms": 2185,
+      "summary": "STRING: 20 interaction(s) for YAP1 (taxon 9606, score≥400, physical): YAP1–TEAD4 (score=0.999, exp=0.957; physical) — Transcriptional enhancer factor TEF-3; Transcription factor which plays a key role in the Hippo signaling pathway, a pathway involved in organ size control and tumor suppression by restricting… YAP1–TEAD1 (score=0.999, exp=0.957; physical) — Transcriptional enhancer factor TEF-1; T",
+      "rows": 20,
+      "classified_error_kind": null,
+      "success_flag": true,
+      "expect": "hit",
+      "verdict": "pass",
+      "notes": [],
+      "sample": [
+        {
+          "interactor_a": "YAP1",
+          "interactor_b": "TEAD4",
+          "partner": "TEAD4",
+          "partner_annotation": "Transcriptional enhancer factor TEF-3; Transcription factor which plays a key role in the Hippo signaling pathway, a pathway involved in organ size control and tumor suppression by restricting…",
+          "score": 0.999,
+          "experimental_score": 0.957,
+          "database_score": 0.9,
+          "textmining_score": 0.961,
+          "coexpression_score": 0,
+          "network_type": "physical",
+          "note": "YAP1–TEAD4 (score=0.999, exp=0.957; physical) — Transcriptional enhancer factor TEF-3; Transcription factor which plays a key role in the Hippo signaling pathway, a pathway involved in organ size control and tumor suppression by restricting…",
+          "source_db": "STRING",
+          "taxon_id": 9606,
+          "url": "https://string-db.org/network/9606/TEAD4"
+        },
+        {
+          "interactor_a": "YAP1",
+          "interactor_b": "TEAD1",
+          "partner": "TEAD1",
+          "partner_annotation": "Transcriptional enhancer factor TEF-1; Transcription factor which plays a key role in the Hippo signaling pathway, a pathway involved in organ size control and tumor suppression by restricting…",
+          "score": 0.999,
+          "experimental_score": 0.957,
+          "database_score": 0.9,
+          "textmining_score": 0.982,
+          "coexpression_score": 0,
+          "network_type": "physical",
+          "note": "YAP1–TEAD1 (score=0.999, exp=0.957; physical) — Transcriptional enhancer factor TEF-1; Transcription factor which plays a key role in the Hippo signaling pathway, a pathway involved in organ size control and tumor suppression by restricting…",
+          "source_db": "STRING",
+          "taxon_id": 9606,
+          "url": "https://string-db.org/network/9606/TEAD1"
+        }
+      ]
+    },
+    {
+      "tool": "string_ppi",
+      "database": "STRING",
+      "case": "yeast_cdc28",
+      "case_label": "Yeast CDC28 / CDK1 (Saccharomyces cerevisiae)",
+      "via": "registry",
+      "args": {
+        "organism": "yeast",
+        "gene": "CDC28",
+        "uniprot_ac": "P00546",
+        "network_type": "physical",
+        "required_score": 400
+      },
+      "status": "ok",
+      "latency_ms": 1885,
+      "summary": "STRING: 20 interaction(s) for CDC28 (taxon 4932, score≥400, physical): CDC28–CLB5 (score=0.999, exp=0.733; physical) — S-phase entry cyclin-5; B-type cyclin involved in DNA replication during S phase; activates Cdc28p to promote initiation of DNA synthesis; functions in formation of mitotic spindles along with Clb3p… CDC28–CLN3 (score=0.998, exp=0.556; physical) — G1/S-specific cyclin CLN3; G1 cyc",
+      "rows": 20,
+      "classified_error_kind": null,
+      "success_flag": true,
+      "expect": "hit",
+      "verdict": "pass",
+      "notes": [],
+      "sample": [
+        {
+          "interactor_a": "CDC28",
+          "interactor_b": "CLB5",
+          "partner": "CLB5",
+          "partner_annotation": "S-phase entry cyclin-5; B-type cyclin involved in DNA replication during S phase; activates Cdc28p to promote initiation of DNA synthesis; functions in formation of mitotic spindles along with Clb3p…",
+          "score": 0.999,
+          "experimental_score": 0.733,
+          "database_score": 0.8,
+          "textmining_score": 0.983,
+          "coexpression_score": 0,
+          "network_type": "physical",
+          "note": "CDC28–CLB5 (score=0.999, exp=0.733; physical) — S-phase entry cyclin-5; B-type cyclin involved in DNA replication during S phase; activates Cdc28p to promote initiation of DNA synthesis; functions in formation of mitotic spindles along with Clb3p…",
+          "source_db": "STRING",
+          "taxon_id": 4932,
+          "url": "https://string-db.org/network/4932/CLB5"
+        },
+        {
+          "interactor_a": "CDC28",
+          "interactor_b": "CLN3",
+          "partner": "CLN3",
+          "partner_annotation": "G1/S-specific cyclin CLN3; G1 cyclin involved in cell cycle progression; activates Cdc28p kinase to promote G1 to S phase transition; plays a role in regulating transcription of other G1 cyclins,…",
+          "score": 0.998,
+          "experimental_score": 0.556,
+          "database_score": 0.8,
+          "textmining_score": 0.982,
+          "coexpression_score": 0,
+          "network_type": "physical",
+          "note": "CDC28–CLN3 (score=0.998, exp=0.556; physical) — G1/S-specific cyclin CLN3; G1 cyclin involved in cell cycle progression; activates Cdc28p kinase to promote G1 to S phase transition; plays a role in regulating transcription of other G1 cyclins,…",
+          "source_db": "STRING",
+          "taxon_id": 4932,
+          "url": "https://string-db.org/network/4932/CLN3"
+        }
+      ]
+    }
+  ],
+  "untested": []
+}

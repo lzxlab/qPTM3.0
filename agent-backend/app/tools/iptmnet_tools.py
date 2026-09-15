@@ -63,7 +63,11 @@ def _base() -> str:
 
 
 def _iptmnet_get(path: str) -> dict[str, Any] | list[Any] | None:
-    """GET JSON from iPTMnet API (expects paths like v1/{id}/substrate)."""
+    """GET JSON from iPTMnet API (expects paths like v1/{id}/substrate).
+
+    Returns an error dict with ``http_status`` on 5xx so callers classify as
+    ``http_error`` instead of scientific empty.
+    """
     url = f"{_base()}/{path.lstrip('/')}"
     try:
         with httpx.Client(
@@ -76,15 +80,30 @@ def _iptmnet_get(path: str) -> dict[str, Any] | list[Any] | None:
                 return None
             if resp.status_code >= 500:
                 logger.warning("iPTMnet API %s for %s", resp.status_code, path)
-                return None
+                return {
+                    "error": f"iPTMnet API HTTP {resp.status_code} for {path}",
+                    "http_status": resp.status_code,
+                }
             resp.raise_for_status()
             return resp.json()
+    except httpx.TimeoutException as e:
+        logger.warning("iPTMnet API timeout for %s: %s", path, e)
+        return {"error": f"iPTMnet API timeout for {path}", "http_status": 504}
     except httpx.HTTPError as e:
         logger.warning("iPTMnet API error for %s: %s", path, e)
-        return None
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        if status:
+            return {"error": f"iPTMnet API HTTP {status} for {path}", "http_status": status}
+        return {"error": f"iPTMnet API error for {path}: {e}"}
     except Exception as e:
         logger.error("iPTMnet request failed for %s: %s", path, e)
-        return None
+        return {"error": f"iPTMnet request failed: {e}"}
+
+
+def _iptmnet_api_error(data: Any) -> dict[str, Any] | None:
+    if isinstance(data, dict) and data.get("error") and data.get("http_status"):
+        return data
+    return None
 
 
 def _resolve(gene: str | None, uniprot_ac: str | None) -> tuple[str | None, str | None, dict | None]:
@@ -232,6 +251,17 @@ def _iptmnet_enzymes(
         }
 
     data = _iptmnet_get(f"v1/{ac}/substrate")
+    api_err = _iptmnet_api_error(data)
+    if api_err:
+        return {
+            **meta,
+            "summary": str(api_err.get("error")),
+            "gene": gene or (identity or {}).get("gene"),
+            "uniprot_ac": ac,
+            "enzymes": [],
+            "total": 0,
+            **api_err,
+        }
     if data is None:
         return {
             **meta,
@@ -342,6 +372,17 @@ def _iptmnet_ptm_ppi(
         }
 
     data = _iptmnet_get(f"v1/{ac}/ptmppi")
+    api_err = _iptmnet_api_error(data)
+    if api_err:
+        return {
+            **meta,
+            "summary": str(api_err.get("error")),
+            "gene": gene or (identity or {}).get("gene"),
+            "uniprot_ac": ac,
+            "interactions": [],
+            "total": 0,
+            **api_err,
+        }
     if data is None:
         return {
             **meta,

@@ -7,9 +7,10 @@ import { detectLang, ANSWER_LANGUAGE_RULE } from "./gate.js";
 import { generateFollowUps, ptmSteerFollowUps } from "./followups.js";
 import { cannotInvestigateSiteLevel } from "./clarification.js";
 import { resolveSessionTarget, } from "./resolve-target.js";
-import { sanitizeUserVisibleText } from "./protocol.js";
+import { sanitizeUserVisibleText, stripProtocolMarkup } from "./protocol.js";
 import { AgentPhase, setPhase } from "./phase.js";
 import { seedDrStateFromArtifacts, runSupervisorLoop, } from "./dr-research-loop.js";
+import { ThoughtFlusher } from "./thought-flush.js";
 export async function* runDeepResearch(userMessage, history, session) {
     const memory = session.memory;
     const artifacts = session.artifacts;
@@ -52,11 +53,30 @@ export async function* runDeepResearch(userMessage, history, session) {
     const state = seedDrStateFromArtifacts(artifacts);
     yield* runSupervisorLoop(userMessage, memory, session, skills, sourcesCatalog, lang, artifacts, citations, state, history);
     yield setPhase(session, AgentPhase.synthesis, "Writing research report");
+    yield {
+        type: "synthesis_started",
+        evidence: {
+            db_results: artifacts.findDbResults().length,
+            db_rows: artifacts.dbRowCount(),
+            literature: artifacts.findLiterature().length,
+            web_search: artifacts.findWebSearch().length,
+            citations: citations.length,
+            catalog: artifacts.catalogForPrompt(8, { skipEmpty: true }),
+        },
+    };
     let reportBody = "";
     try {
         for await (const chunk of streamDeepReport(userMessage, history, memory, artifacts, skills, sourcesCatalog, citations, lang)) {
-            reportBody += chunk;
-            yield { type: "text", content: chunk };
+            if (chunk.kind === "reasoning") {
+                const thought = stripProtocolMarkup(chunk.content).text;
+                if (thought)
+                    yield { type: "report_thought", content: thought };
+                continue;
+            }
+            if (chunk.kind !== "text" || !chunk.content)
+                continue;
+            reportBody += chunk.content;
+            yield { type: "text", content: chunk.content };
         }
     }
     catch (e) {
@@ -116,6 +136,7 @@ async function* streamDeepReport(question, history, memory, artifacts, skills, c
     const messages = buildDeepReportMessages(question, history, memory, artifacts, skills, catalog, citations, lang);
     const llm = getLlm();
     let gotText = false;
+    const thoughts = new ThoughtFlusher();
     for await (const ev of llm.chatCompletionStream(messages, {
         maxTokens: cfg.drSynthesisMaxTokens,
         temperature: 0.35,
@@ -123,11 +144,20 @@ async function* streamDeepReport(question, history, memory, artifacts, skills, c
         timeoutMs: cfg.drSynthesisTimeoutMs,
         totalTimeoutMs: cfg.drSynthesisTimeoutMs,
     })) {
+        if (ev.type === "reasoning" && ev.content) {
+            const flushed = thoughts.push(ev.content);
+            if (flushed)
+                yield { kind: "reasoning", content: flushed };
+            continue;
+        }
         if (ev.type !== "text" || !ev.content)
             continue;
         gotText = true;
-        yield ev.content;
+        yield { kind: "text", content: ev.content };
     }
+    const rest = thoughts.flush();
+    if (rest)
+        yield { kind: "reasoning", content: rest };
     if (!gotText)
         throw new Error("empty DR report stream");
 }

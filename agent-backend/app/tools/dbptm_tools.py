@@ -247,11 +247,30 @@ def _load_dbptm_data() -> None:
 # ── Tool 8: dbptm_functional ──────────────────────────────────────
 
 def _dbptm_functional(
-    uniprot_ac: str,
+    uniprot_ac: str | None = None,
+    gene: str | None = None,
     position: int | None = None,
     ptm_type: str = "all",
 ) -> dict[str, Any]:
     """Query dbPTM for nsSNP-linked disease associations (and optional site inventory)."""
+    from app.sources.uniprot_id import resolve_identity
+
+    ac = (uniprot_ac or "").strip().upper() or None
+    g = (gene or "").strip() or None
+    if not ac and g:
+        ident = resolve_identity(gene=g)
+        if ident:
+            ac = (ident.get("uniprot_ac") or "").upper() or None
+            g = ident.get("gene") or g
+    if not ac:
+        return {
+            "error": "missing_identifier",
+            "summary": "Provide uniprot_ac or a resolvable gene symbol for dbPTM.",
+            "gene": g,
+            "uniprot_ac": None,
+            "available": False,
+        }
+
     _load_dbptm_data()
 
     has_local_data = (
@@ -263,19 +282,20 @@ def _dbptm_functional(
     if not has_local_data:
             return {
                 "summary": (
-                    f"No dbPTM data available for {uniprot_ac}. "
+                    f"No dbPTM data available for {ac}. "
                     "dbPTM bulk data files are not loaded. dbPTM does not provide a "
                     "public REST API and its search page renders results client-side "
                     "(jQuery DataTables), so web scraping is not viable. "
                     "To enable dbPTM integration, run: python -m app.sources.prepare_dbptm"
                 ),
-                "uniprot_ac": uniprot_ac,
+                "uniprot_ac": ac,
+                "gene": g,
                 "position": position,
                 "available": False,
             }
 
     # ── Query local indices ──
-    all_sites = _ptm_sites_index.get(uniprot_ac, []) if _ptm_sites_index else []
+    all_sites = _ptm_sites_index.get(ac, []) if _ptm_sites_index else []
     if position:
         sites = [s for s in all_sites if s["position"] == position]
     elif ptm_type != "all":
@@ -283,7 +303,7 @@ def _dbptm_functional(
     else:
         sites = all_sites
 
-    all_disease = _disease_index.get(uniprot_ac, []) if _disease_index else []
+    all_disease = _disease_index.get(ac, []) if _disease_index else []
     if position:
         disease = [d for d in all_disease if d.get("position") == position]
     else:
@@ -298,22 +318,24 @@ def _dbptm_functional(
         parts.append(f"{len(disease)} disease association(s): {', '.join(sorted(disease_names)[:5])}")
 
     if not parts:
-        summary = f"No dbPTM annotations found for {uniprot_ac}"
+        summary = f"No dbPTM annotations found for {ac}"
         if position:
             summary += f" at position {position}"
         summary += "."
     else:
-        summary = f"dbPTM data for {uniprot_ac}: " + "; ".join(parts) + "."
+        summary = f"dbPTM data for {ac}: " + "; ".join(parts) + "."
 
     return {
         "summary": summary,
-        "uniprot_ac": uniprot_ac,
+        "gene": g,
+        "uniprot_ac": ac,
         "position": position,
         "available": True,
         "sites": sites[:20],
         "disease_associations": disease[:15],
         "total_sites": len(all_sites),
         "total_disease": len(all_disease),
+        "total": max(len(disease), len(all_disease), len(sites), len(all_sites)),
     }
 
 
@@ -331,9 +353,13 @@ def register_dbptm_tools() -> None:
         parameters={
             "type": "object",
             "properties": {
+                "gene": {
+                    "type": "string",
+                    "description": "Gene symbol (resolved to UniProt when accession omitted)",
+                },
                 "uniprot_ac": {
                     "type": "string",
-                    "description": "UniProt accession of the protein (e.g., P04637 for TP53)",
+                    "description": "UniProt accession of the protein (e.g., P02787)",
                 },
                 "position": {
                     "type": "integer",
@@ -346,7 +372,7 @@ def register_dbptm_tools() -> None:
                     "description": "Filter by PTM type (default: all)",
                 },
             },
-            "required": ["uniprot_ac"],
+            "required": [],
         },
         handler=_dbptm_functional,
     )

@@ -9,7 +9,7 @@ import { classifyQueryMode, detectLang, gateReply, needsLiterature, ptmResearchS
 import { retrieveIntentTools } from "./retriever.js";
 import { generateFollowUps, ptmSteerFollowUps } from "./followups.js";
 import { applyResolvedIdentity, resolveSessionTarget, } from "./resolve-target.js";
-import { containsProtocolMarkup, failedGenerationMessage, sanitizeUserVisibleText, } from "./protocol.js";
+import { containsProtocolMarkup, failedGenerationMessage, sanitizeUserVisibleText, stripProtocolMarkup, } from "./protocol.js";
 import { isEmptyToolResult } from "./tool-result.js";
 import { AgentPhase, setPhase } from "./phase.js";
 import { buildIntentArgs } from "./dr-research-loop.js";
@@ -124,11 +124,25 @@ export async function* runQA(userMessage, history, session) {
     if (artifacts.shouldSkipLiteratureSearch(userMessage)) {
         yield setPhase(session, AgentPhase.synthesis, "Answering from cached literature");
         const litCtx = artifacts.getLiteratureContext();
+        yield {
+            type: "synthesis_started",
+            evidence: {
+                db_results: artifacts.findDbResults().length,
+                db_rows: artifacts.dbRowCount(),
+                literature: artifacts.findLiterature().length,
+                web_search: artifacts.findWebSearch().length,
+                citations: citations.length,
+                catalog: artifacts.catalogForPrompt(8, { skipEmpty: true }),
+            },
+        };
         const synth = await finalizeQaAnswer(() => synthesizeQA(userMessage, history, memory, skills, sourcesCatalog, litCtx, citations, lang), memory, lang);
-        for (const chunk of chunkText(synth))
+        if (synth.reasoning) {
+            yield { type: "report_thought", content: stripProtocolMarkup(synth.reasoning).text };
+        }
+        for (const chunk of chunkText(synth.content))
             yield { type: "text", content: chunk };
         yield { type: "sources", citations };
-        const followUps = await generateFollowUps(userMessage, synth, memory, artifacts, "qa", toolsUsed);
+        const followUps = await generateFollowUps(userMessage, synth.content, memory, artifacts, "qa", toolsUsed);
         yield { type: "follow_up_questions", questions: followUps };
         session.citations = citations;
         yield { type: "done" };
@@ -220,11 +234,22 @@ ${ANSWER_LANGUAGE_RULE}`,
             : [];
         if (!used.has("web_search"))
             tools.push(WEB_SEARCH_TOOL);
-        const { content, toolCalls } = await llm.chatCompletion(messages, {
+        const { content, toolCalls, reasoning } = await llm.chatCompletion(messages, {
             tools: tools.length ? tools : undefined,
             maxTokens: 4096,
             temperature: 0.35,
         });
+        const rationale = stripProtocolMarkup(reasoning || "").text.trim();
+        const callNote = toolCalls.length ? stripProtocolMarkup(content || "").text.trim() : "";
+        const thought = rationale || callNote;
+        if (thought) {
+            yield {
+                type: "phase_update",
+                phase: AgentPhase.database,
+                label: "Choosing next lookup",
+                detail: thought,
+            };
+        }
         const allowedNames = new Set(toolList);
         const remainingNames = new Set(remaining);
         const allowedCalls = toolCalls.filter((tc) => {
@@ -343,12 +368,27 @@ ${ANSWER_LANGUAGE_RULE}`,
     ]
         .filter(Boolean)
         .join("\n---\n");
+    yield {
+        type: "synthesis_started",
+        evidence: {
+            db_results: artifacts.findDbResults().length,
+            db_rows: artifacts.dbRowCount(),
+            literature: artifacts.findLiterature().length,
+            web_search: artifacts.findWebSearch().length,
+            citations: citations.length,
+            catalog: artifacts.catalogForPrompt(8, { skipEmpty: true }),
+        },
+    };
     let answer;
     if (llmAnswer && !litSummary && !webSummary) {
         answer = sanitizeUserVisibleText(llmAnswer, lang);
     }
     else {
-        answer = await finalizeQaAnswer(() => synthesizeQA(userMessage, history, memory, skills, sourcesCatalog, extraCtx, citations, lang), memory, lang);
+        const synth = await finalizeQaAnswer(() => synthesizeQA(userMessage, history, memory, skills, sourcesCatalog, extraCtx, citations, lang), memory, lang);
+        if (synth.reasoning) {
+            yield { type: "report_thought", content: stripProtocolMarkup(synth.reasoning).text };
+        }
+        answer = synth.content;
     }
     for (const chunk of chunkText(answer))
         yield { type: "text", content: chunk };
@@ -360,12 +400,12 @@ ${ANSWER_LANGUAGE_RULE}`,
 }
 async function finalizeQaAnswer(synthesize, memory, lang) {
     let raw = await synthesize();
-    let sanitized = sanitizeUserVisibleText(raw, lang);
-    if (containsProtocolMarkup(raw) && sanitized === failedGenerationMessage(lang)) {
+    let sanitized = sanitizeUserVisibleText(raw.content, lang);
+    if (containsProtocolMarkup(raw.content) && sanitized === failedGenerationMessage(lang)) {
         raw = await synthesize();
-        sanitized = sanitizeUserVisibleText(raw, lang);
+        sanitized = sanitizeUserVisibleText(raw.content, lang);
     }
-    return sanitized;
+    return { content: sanitized, reasoning: raw.reasoning || "" };
 }
 async function synthesizeQA(question, history, memory, skills, sourcesCatalog, extraEvidence, citations, lang) {
     const citeList = citations.map((c) => `${c.id}: ${c.database}`).join(", ");
@@ -390,8 +430,8 @@ ${ANSWER_LANGUAGE_RULE}`;
         { role: "user", content: userBlock },
     ];
     const llm = getLlm();
-    const { content } = await llm.chatCompletion(messages, { maxTokens: 4096, temperature: 0.35 });
-    return content;
+    const { content, reasoning } = await llm.chatCompletion(messages, { maxTokens: 4096, temperature: 0.35 });
+    return { content, reasoning: reasoning || "" };
 }
 async function synthesizeConcept(question, history, skills, lang) {
     const system = `You are the **qPTM PTM research assistant**. You may first explain molecular and cell-biology concepts (proteins, genes, cells, PTMs).

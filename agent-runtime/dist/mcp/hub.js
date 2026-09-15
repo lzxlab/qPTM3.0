@@ -214,7 +214,14 @@ export async function callQptmTool(toolName, args) {
         };
     }
     catch (e) {
-        return { success: false, summary: String(e), data: null, error_kind: "call_bug" };
+        const msg = String(e);
+        const timedOut = /timeout/i.test(msg);
+        return {
+            success: false,
+            summary: msg,
+            data: null,
+            error_kind: timedOut ? "timeout" : "call_bug",
+        };
     }
 }
 /**

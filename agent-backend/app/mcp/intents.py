@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Any, Callable
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout, as_completed
 
 from app.mcp.formatters import blocks_to_text, format_intent_response, format_tool_block
 from app.tools.pubtator_tools import merge_paper_hits
@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LIMIT = 15
 MAX_LIMIT = 200
+INTENT_TOOL_TIMEOUT_S = 25.0
+INTENT_MAX_WORKERS = 3
 
 _DISEASE_QUERY_RE = re.compile(
     r"disease|cancer|tumor|tumour|疾病|肿瘤|癌",
@@ -199,6 +201,33 @@ def _resolved_dict(entities: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _invoke_one_timed(
+    tool_name: str,
+    entities: dict[str, Any],
+    timeout_s: float = INTENT_TOOL_TIMEOUT_S,
+) -> dict[str, Any]:
+    """Run a single tool with a hard per-call timeout."""
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(_invoke_one, tool_name, entities)
+        try:
+            return fut.result(timeout=timeout_s)
+        except FuturesTimeout:
+            return {
+                "success": False,
+                "error_kind": "timeout",
+                "summary": f"{tool_name} timed out after {timeout_s:.0f}s",
+                "data": None,
+            }
+        except Exception as exc:
+            logger.exception("intent tool %s failed", tool_name)
+            return {
+                "success": False,
+                "error_kind": "call_bug",
+                "summary": f"{tool_name} failed: {exc}",
+                "data": None,
+            }
+
+
 def _run_tools(
     intent: str,
     entities: dict[str, Any],
@@ -216,12 +245,29 @@ def _run_tools(
         and not _STABILITY_QUERY_RE.search(query)
         and tool_filter is None
     )
+    tool_jobs: list[tuple[str, str | None]] = []
     for tool_name, tier in INTENT_TOOL_MAP.get(intent, []):
         if tool_filter and not tool_filter(tool_name):
             continue
         if skip_stability and tool_name == "ptm_stability":
             continue
-        out = _invoke_one(tool_name, call_entities)
+        tool_jobs.append((tool_name, tier))
+
+    results: list[tuple[str, str | None, dict[str, Any]]] = []
+    if tool_jobs:
+        with ThreadPoolExecutor(max_workers=INTENT_MAX_WORKERS) as pool:
+            futs = {
+                pool.submit(_invoke_one_timed, name, call_entities): (name, tier)
+                for name, tier in tool_jobs
+            }
+            for fut in as_completed(futs):
+                name, tier = futs[fut]
+                results.append((name, tier, fut.result()))
+
+        order = {name: idx for idx, (name, _) in enumerate(tool_jobs)}
+        results.sort(key=lambda item: order.get(item[0], 999))
+
+    for tool_name, tier, out in results:
         block = format_tool_block(tool_name, out, limit=limit, tier=tier)
         blocks.append(block)
         if out.get("summary"):

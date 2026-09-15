@@ -370,6 +370,10 @@ export async function* runBreadthPlanExecute(
     },
   };
 
+  for (const s of plan.steps) {
+    yield { type: "step_started", step: s.step, title: s.title, status: "running" };
+  }
+
   const tools = flattenPlanIntents(plan.steps, state.emptyTools, state.succeededTools);
   yield setPhase(session, AgentPhase.database, "BFS layer 1: parallel databases");
   for (const tool of tools) {
@@ -384,6 +388,15 @@ export async function* runBreadthPlanExecute(
     const results = await Promise.all(tools.map((tool) => executeIntent(tool, memory, userMessage)));
     for (const { tool, result, outcome } of results) {
       yield* commitIntentResult(tool, result, outcome, memory, artifacts, citations, state);
+      const step = plan.steps.find((s) => (s.tools || []).includes(tool));
+      if (step) {
+        yield {
+          type: "step_completed",
+          step: step.step,
+          title: step.title,
+          status: outcome.empty ? "empty" : "done",
+        };
+      }
     }
   }
 
@@ -465,6 +478,12 @@ export async function* runDepthSearch(
 ): AsyncGenerator<AgentEvent> {
   state.depthSearched = true;
   yield setPhase(session, AgentPhase.depth, "DFS: one focus branch");
+  yield {
+    type: "step_started",
+    step: 0,
+    title: `DFS: ${focus}`,
+    status: "running",
+  };
 
   const focusIntent = intentForFocus(focus);
   if (focusIntent && mayRecallIntent(focusIntent, state.emptyTools, state.succeededTools)) {
@@ -594,6 +613,12 @@ export async function* runDepthSearch(
     summary: `depth_search focus=${focus} q1=${q1.slice(0, 80)} papers=${allPmids.length} abstracts=${papers.length}`,
   };
   recordOutcome(state, outcome);
+  yield {
+    type: "step_completed",
+    step: 0,
+    title: `DFS: ${focus}`,
+    status: outcome.empty ? "empty" : "done",
+  };
 }
 
 export const SUPERVISOR_META_TOOLS = [
@@ -720,11 +745,21 @@ export async function* runSupervisorLoop(
     );
 
     const tools = await buildSupervisorTools(state);
-    const { content, toolCalls } = await llm.chatCompletion(messages, {
+    const { content, toolCalls, reasoning } = await llm.chatCompletion(messages, {
       tools,
       maxTokens: 1200,
       temperature: 0.25,
     });
+
+    const rationale = stripProtocolMarkup(reasoning || content || "").text.trim();
+    yield {
+      type: "supervisor_decision",
+      round,
+      actions: toolCalls.map((tc) => ({ name: tc.name, arguments: tc.arguments || {} })),
+      rationale,
+      gap_score: gapScore(state.outcomes),
+      outcomes_summary: outcomesSummary(state.outcomes),
+    };
 
     const detail = stripProtocolMarkup(content || "").text.trim();
     if (detail) {
@@ -858,6 +893,17 @@ export async function* runSupervisorLoop(
             : `finish_research noted (gap=${gap.toFixed(2)})`,
         );
       }
+    }
+
+    if (wantsFinish) {
+      yield {
+        type: "supervisor_decision",
+        round,
+        actions: [{ name: "finish_research" }],
+        finish_accepted: canFinish,
+        gap_score: gap,
+        outcomes_summary: outcomesSummary(state.outcomes),
+      };
     }
 
     for (const tc of toolCalls) {

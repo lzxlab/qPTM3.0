@@ -3,6 +3,9 @@ export type LlmStreamEvent = {
     type: "text";
     content: string;
 } | {
+    type: "reasoning";
+    content: string;
+} | {
     type: "tool_call";
     id: string;
     name: string;
@@ -26,6 +29,7 @@ export declare class LlmClient {
         maxModels?: number;
     }): Promise<{
         content: string;
+        reasoning: string;
         toolCalls: Array<{
             id: string;
             name: string;

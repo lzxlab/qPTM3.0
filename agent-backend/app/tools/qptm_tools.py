@@ -43,7 +43,23 @@ def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     surface a clean failure instead of raising inside the tool handler.
     """
     client = _sync_client()
-    resp = client.get(path, params=params)
+    try:
+        resp = client.get(path, params=params)
+    except httpx.TimeoutException as exc:
+        logger.warning("qPTM API %s timeout: %s", path, exc)
+        return {
+            "error": f"qPTM API {path} timed out",
+            "http_status": 504,
+            "detail": str(exc),
+        }
+    except httpx.HTTPError as exc:
+        logger.warning("qPTM API %s HTTP error: %s", path, exc)
+        status = getattr(getattr(exc, "response", None), "status_code", None) or 502
+        return {
+            "error": f"qPTM API {path} failed: {exc}",
+            "http_status": status,
+            "detail": str(exc),
+        }
     if resp.status_code >= 400:
         snippet = ""
         try:

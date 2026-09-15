@@ -34,6 +34,7 @@ from app.tools.compartments_tools import register_compartments_tools
 from app.tools.subcell_tools import register_subcell_tools
 from app.tools.domain_tools import register_domain_tools
 from app.tools.pubtator_tools import register_pubtator_tools
+from app.tools.signalp_tools import register_signalp_tools
 
 _registered = False
 
@@ -73,4 +74,5 @@ def register_all_tools() -> None:
     register_subcell_tools()
     register_domain_tools()
     register_pubtator_tools()
+    register_signalp_tools()
     _registered = True

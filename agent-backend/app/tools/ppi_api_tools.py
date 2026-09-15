@@ -36,8 +36,14 @@ _ORG_TAXON = {
     "mus musculus": 10090,
     "rat": 10116,
     "rattus norvegicus": 10116,
+    # UniProt / NCBI strain S288C — used for identity and BioGRID/IntAct.
     "yeast": 559292,
     "saccharomyces cerevisiae": 559292,
+}
+
+# STRING's species table uses the species-level taxid, not the S288C strain.
+_STRING_TAXON_ALIAS = {
+    559292: 4932,  # S. cerevisiae S288C → S. cerevisiae
 }
 
 _CALLER = "qPTM_agent"
@@ -52,6 +58,12 @@ def _taxon(organism: str | int | None) -> int:
     if key.isdigit():
         return int(key)
     return _ORG_TAXON.get(key, 9606)
+
+
+def _string_taxon(organism: str | int | None) -> int:
+    """NCBI taxid STRING actually indexes (4932, not UniProt's 559292)."""
+    tax = _taxon(organism)
+    return _STRING_TAXON_ALIAS.get(tax, tax)
 
 
 def _meta(source_id: str, defaults: dict[str, str]) -> dict[str, Any]:
@@ -116,6 +128,7 @@ def _string_post(method: str, data: dict[str, Any]) -> Any:
         if alt not in bases:
             bases.append(alt)
     last_err = None
+    last_status: int | None = None
     for base in bases:
         url = f"{base}/{method.lstrip('/')}"
         try:
@@ -123,7 +136,14 @@ def _string_post(method: str, data: dict[str, Any]) -> Any:
                 resp = client.post(url, data=data)
                 if resp.status_code == 403 and "Just a moment" in resp.text:
                     last_err = f"Cloudflare blocked {base}"
+                    last_status = 503
                     continue
+                if resp.status_code == 400:
+                    last_status = 400
+                    body = resp.text[:300].replace("\n", " ")
+                    last_err = f"STRING HTTP 400 from {base}: {body}"
+                    # Same payload will fail on every mirror; do not burn the fallback.
+                    break
                 resp.raise_for_status()
                 ctype = resp.headers.get("content-type", "")
                 if "json" in ctype or resp.text.lstrip().startswith(("[", "{")):
@@ -131,8 +151,11 @@ def _string_post(method: str, data: dict[str, Any]) -> Any:
                 return resp.text
         except Exception as e:
             last_err = str(e)
+            last_status = getattr(getattr(e, "response", None), "status_code", last_status)
             logger.warning("STRING %s via %s failed: %s", method, base, e)
-    raise RuntimeError(last_err or "STRING API unavailable")
+    err = RuntimeError(last_err or "STRING API unavailable")
+    setattr(err, "http_status", last_status)
+    raise err
 
 
 def _string_annotations(names: list[str], taxon: int) -> dict[str, str]:
@@ -193,7 +216,7 @@ def _string_ppi(
         nt = "functional"
     score = max(0, min(int(required_score or 400), 1000))
     lim = max(1, min(int(limit or 20), 50))
-    taxon = _taxon(organism)
+    taxon = _string_taxon(organism)
 
     try:
         rows = _string_post(
@@ -208,7 +231,16 @@ def _string_ppi(
             },
         )
     except Exception as e:
-        return {"error": str(e), "summary": f"STRING API failed: {e}"}
+        err = str(e)
+        payload: dict[str, Any] = {"error": err, "summary": f"STRING API failed: {e}"}
+        status = getattr(e, "http_status", None)
+        if status:
+            payload["http_status"] = status
+        elif "Cloudflare" in err or "blocked" in err.lower():
+            payload["http_status"] = 503
+        elif "HTTP 400" in err:
+            payload["http_status"] = 400
+        return payload
 
     if not isinstance(rows, list):
         return {"error": "Unexpected STRING response", "summary": "STRING returned non-list data"}

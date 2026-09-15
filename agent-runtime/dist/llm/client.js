@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { cfg } from "../config.js";
+import { extractReasoning, isEmptyLlmResult } from "./reasoning.js";
 import { getOpenCodeSessionId } from "./session-context.js";
 const ZEN_PREFIXES = ["gpt-", "gemini-", "claude-", "kimi-", "qwen"];
 function baseUrlForModel(model) {
@@ -76,16 +77,18 @@ export class LlmClient {
                     temperature: options.temperature ?? 0.3,
                     max_tokens: options.maxTokens ?? 4096,
                 }, { signal: AbortSignal.timeout(timeout), ...this.requestOptionsFor(model) });
-                const msg = res.choices[0]?.message;
+                const choice = res.choices[0];
+                const msg = choice?.message;
                 const content = msg?.content || "";
+                const reasoning = extractReasoning(msg) || extractReasoning(choice);
                 const toolCalls = (msg?.tool_calls || []).map((tc) => ({
                     id: tc.id,
                     name: tc.function.name,
                     arguments: JSON.parse(tc.function.arguments || "{}"),
                 }));
-                if (!content && toolCalls.length === 0)
+                if (isEmptyLlmResult(content, toolCalls))
                     throw new Error("empty response");
-                return { content, toolCalls };
+                return { content, reasoning, toolCalls };
             }
             catch (e) {
                 lastErr = e instanceof Error ? e : new Error(String(e));
@@ -117,6 +120,9 @@ export class LlmClient {
                         continue;
                     if (delta.content)
                         yield { type: "text", content: delta.content };
+                    const reasoning = extractReasoning(delta) || extractReasoning(chunk.choices[0]);
+                    if (reasoning)
+                        yield { type: "reasoning", content: reasoning };
                     if (delta.tool_calls) {
                         for (const tc of delta.tool_calls) {
                             const idx = tc.index ?? 0;

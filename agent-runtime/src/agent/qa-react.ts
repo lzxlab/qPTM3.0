@@ -33,6 +33,7 @@ import {
   containsProtocolMarkup,
   failedGenerationMessage,
   sanitizeUserVisibleText,
+  stripProtocolMarkup,
 } from "./protocol.js";
 import { isEmptyToolResult } from "./tool-result.js";
 import { AgentPhase, setPhase } from "./phase.js";
@@ -195,14 +196,28 @@ export async function* runQA(
       "Answering from cached literature",
     );
     const litCtx = artifacts.getLiteratureContext();
+    yield {
+      type: "synthesis_started",
+      evidence: {
+        db_results: artifacts.findDbResults().length,
+        db_rows: artifacts.dbRowCount(),
+        literature: artifacts.findLiterature().length,
+        web_search: artifacts.findWebSearch().length,
+        citations: citations.length,
+        catalog: artifacts.catalogForPrompt(8, { skipEmpty: true }),
+      },
+    };
     const synth = await finalizeQaAnswer(
       () => synthesizeQA(userMessage, history, memory, skills, sourcesCatalog, litCtx, citations, lang),
       memory,
       lang,
     );
-    for (const chunk of chunkText(synth)) yield { type: "text", content: chunk };
+    if (synth.reasoning) {
+      yield { type: "report_thought", content: stripProtocolMarkup(synth.reasoning).text };
+    }
+    for (const chunk of chunkText(synth.content)) yield { type: "text", content: chunk };
     yield { type: "sources", citations };
-    const followUps = await generateFollowUps(userMessage, synth, memory, artifacts, "qa", toolsUsed);
+    const followUps = await generateFollowUps(userMessage, synth.content, memory, artifacts, "qa", toolsUsed);
     yield { type: "follow_up_questions", questions: followUps };
     session.citations = citations;
     yield { type: "done" };
@@ -305,11 +320,23 @@ ${ANSWER_LANGUAGE_RULE}`,
       ? await llmToolsFor(remaining)
       : [];
     if (!used.has("web_search")) tools.push(WEB_SEARCH_TOOL);
-    const { content, toolCalls } = await llm.chatCompletion(messages, {
+    const { content, toolCalls, reasoning } = await llm.chatCompletion(messages, {
       tools: tools.length ? tools : undefined,
       maxTokens: 4096,
       temperature: 0.35,
     });
+
+    const rationale = stripProtocolMarkup(reasoning || "").text.trim();
+    const callNote = toolCalls.length ? stripProtocolMarkup(content || "").text.trim() : "";
+    const thought = rationale || callNote;
+    if (thought) {
+      yield {
+        type: "phase_update",
+        phase: AgentPhase.database,
+        label: "Choosing next lookup",
+        detail: thought,
+      };
+    }
 
     const allowedNames = new Set<string>(toolList);
     const remainingNames = new Set<string>(remaining);
@@ -444,15 +471,31 @@ ${ANSWER_LANGUAGE_RULE}`,
     .filter(Boolean)
     .join("\n---\n");
 
+  yield {
+    type: "synthesis_started",
+    evidence: {
+      db_results: artifacts.findDbResults().length,
+      db_rows: artifacts.dbRowCount(),
+      literature: artifacts.findLiterature().length,
+      web_search: artifacts.findWebSearch().length,
+      citations: citations.length,
+      catalog: artifacts.catalogForPrompt(8, { skipEmpty: true }),
+    },
+  };
+
   let answer: string;
   if (llmAnswer && !litSummary && !webSummary) {
     answer = sanitizeUserVisibleText(llmAnswer, lang);
   } else {
-    answer = await finalizeQaAnswer(
+    const synth = await finalizeQaAnswer(
       () => synthesizeQA(userMessage, history, memory, skills, sourcesCatalog, extraCtx, citations, lang),
       memory,
       lang,
     );
+    if (synth.reasoning) {
+      yield { type: "report_thought", content: stripProtocolMarkup(synth.reasoning).text };
+    }
+    answer = synth.content;
   }
   for (const chunk of chunkText(answer)) yield { type: "text", content: chunk };
 
@@ -465,17 +508,17 @@ ${ANSWER_LANGUAGE_RULE}`,
 }
 
 async function finalizeQaAnswer(
-  synthesize: () => Promise<string>,
+  synthesize: () => Promise<{ content: string; reasoning: string }>,
   memory: InvestigationMemory,
   lang: "zh" | "en",
-): Promise<string> {
+): Promise<{ content: string; reasoning: string }> {
   let raw = await synthesize();
-  let sanitized = sanitizeUserVisibleText(raw, lang);
-  if (containsProtocolMarkup(raw) && sanitized === failedGenerationMessage(lang)) {
+  let sanitized = sanitizeUserVisibleText(raw.content, lang);
+  if (containsProtocolMarkup(raw.content) && sanitized === failedGenerationMessage(lang)) {
     raw = await synthesize();
-    sanitized = sanitizeUserVisibleText(raw, lang);
+    sanitized = sanitizeUserVisibleText(raw.content, lang);
   }
-  return sanitized;
+  return { content: sanitized, reasoning: raw.reasoning || "" };
 }
 
 async function synthesizeQA(
@@ -487,7 +530,7 @@ async function synthesizeQA(
   extraEvidence: string,
   citations: Citation[],
   lang: "zh" | "en",
-): Promise<string> {
+): Promise<{ content: string; reasoning: string }> {
   const citeList = citations.map((c) => `${c.id}: ${c.database}`).join(", ");
   const system = `You are qPTM biology expert. Answer concisely; distinguish experimental vs predicted evidence. Cite databases (${citeList}). No lengthy reviews.
 Tool tags: [empty_result]=no records in DB (not a missing ID); [missing_params]=need more arguments; [call_bug]=call failed. If gene/UniProt/site is already resolved, do NOT say UniProt AC is missing.
@@ -513,8 +556,8 @@ ${ANSWER_LANGUAGE_RULE}`;
   ];
 
   const llm = getLlm();
-  const { content } = await llm.chatCompletion(messages, { maxTokens: 4096, temperature: 0.35 });
-  return content;
+  const { content, reasoning } = await llm.chatCompletion(messages, { maxTokens: 4096, temperature: 0.35 });
+  return { content, reasoning: reasoning || "" };
 }
 
 async function synthesizeConcept(

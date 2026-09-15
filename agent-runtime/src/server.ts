@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { cfg } from "./config.js";
 import { agentEventToSse } from "./sse.js";
 import { runAgent, newSessionId, snapshotSession, type AgentMode, type RunAgentOptions } from "./agent/run.js";
+import { applyAgentEvent, emptyWorkflowState, workflowHasData } from "./agent/workflow-trace.js";
 import {
   initConversationsDb,
   createConversation,
@@ -17,6 +18,7 @@ import {
   saveConversationState,
   clearConversationState,
 } from "./storage/conversations.js";
+import { parseConversationMessagePost } from "./storage/conversation-messages.js";
 import { classifyQueryMode, gateReply, detectLang } from "./agent/gate.js";
 import { parseEntities } from "./context/memory.js";
 import { resetSession } from "./context/session.js";
@@ -101,12 +103,13 @@ app.post("/conversations/:id/messages", async (c) => {
   if (!did) return c.json({ error: "X-Device-Id required" }, 401);
   const id = c.req.param("id");
   if (!belongsToDevice(id, did)) return c.json({ error: "Not found" }, 403);
-  const body = await c.req.json();
-  const role = String(body.role || "user");
-  const content = String(body.content || "");
-  const meta = body.meta as Record<string, unknown> | undefined;
-  addMessage(id, role, content, meta);
-  return c.json({ ok: true });
+  const body = await c.req.json().catch(() => ({}));
+  const { title, messages } = parseConversationMessagePost(body);
+  if (title) updateTitle(id, title);
+  for (const msg of messages) {
+    addMessage(id, msg.role, msg.content, msg.meta);
+  }
+  return c.json({ ok: true, saved: messages.length });
 });
 
 app.post("/reset-session", async (c) => {
@@ -179,6 +182,7 @@ app.post("/chat", async (c) => {
     async start(controller) {
       let fullAnswer = "";
       let followUps: unknown[] = [];
+      const workflow = emptyWorkflowState();
 
       try {
         await runWithOpenCodeSession(sessionId, async () => {
@@ -190,6 +194,7 @@ app.post("/chat", async (c) => {
             mode,
             clarificationResponse,
           })) {
+            applyAgentEvent(workflow, event);
             const sse = agentEventToSse(event);
             if (sse) controller.enqueue(encoder.encode(sse));
             if (event.type === "text") fullAnswer += event.content || "";
@@ -212,6 +217,7 @@ app.post("/chat", async (c) => {
           follow_ups: followUps,
           mode,
           trace_id: traceId,
+          ...(workflowHasData(workflow) ? { workflow } : {}),
         });
       }
       controller.close();

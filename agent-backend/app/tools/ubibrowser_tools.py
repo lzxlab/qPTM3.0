@@ -316,7 +316,7 @@ def _ubibrowser_interactions(
     uniprot_ac: str | None = None,
     enzyme_type: str = "any",
     query_as: str = "auto",
-    include_predicted: bool = True,
+    include_predicted: bool = False,
     min_confidence: float = 0.8,
     species: str = "H.sapiens",
     limit: int = 40,

@@ -2191,8 +2191,12 @@ def infer_tool_arguments(
     if state is not None and not hasattr(state, "target_uniprot_ac"):
         state = None
 
+    from app.sources.uniprot_id import normalize_uniprot_ac
+
     gene = entities.get("gene") or (getattr(state, "target_gene", None) if state else None)
     uniprot = entities.get("uniprot_ac") or (getattr(state, "target_uniprot_ac", None) if state else None)
+    if uniprot:
+        uniprot = normalize_uniprot_ac(str(uniprot)) or uniprot
     position = entities.get("position") or (getattr(state, "target_position", None) if state else None)
     ptm_type = entities.get("ptm_type") or (
         getattr(state, "target_ptm_type", None) if state else None
@@ -2201,17 +2205,33 @@ def infer_tool_arguments(
     query = entities.get("query", "")
 
     if tool_name == "qptm_search":
+        from app.sources.uniprot_id import organism_id_for, resolve_identity
+        from app.tools.identity_guard import check_gene_accession_mismatch
+
+        org_id = organism_id_for(organism)
+        if gene and uniprot and check_gene_accession_mismatch(gene, uniprot):
+            pass  # preserve stale pair — registry.execute will refuse
+        elif gene or uniprot:
+            ident = resolve_identity(uniprot_ac=uniprot, gene=gene, organism_id=org_id)
+            if ident:
+                gene = ident.get("gene") or gene
+                uniprot = ident.get("uniprot_ac") or uniprot
         search_q = gene or query
         field = "uniprot" if uniprot else ("gene" if gene else "any")
         if uniprot:
             search_q = uniprot
-        return {
+        out: dict[str, Any] = {
             "query": search_q,
             "field": field,
             "organism": organism,
             "ptm_type": ptm_type,
             "per_page": 20,
         }
+        if gene:
+            out["gene"] = gene
+        if uniprot:
+            out["uniprot_ac"] = uniprot
+        return out
 
     if tool_name == "qptm_site_conditions":
         if not (uniprot and position):
@@ -2235,6 +2255,18 @@ def infer_tool_arguments(
         if not uniprot:
             return {}
         return {"uniprot_ac": uniprot}
+
+    if tool_name == "signalp_prediction":
+        if not (gene or uniprot):
+            return {}
+        args: dict[str, Any] = {}
+        if gene:
+            args["gene"] = gene
+        if uniprot:
+            args["uniprot_ac"] = uniprot
+        if position:
+            args["site_position"] = position
+        return args
 
     if tool_name in ("iptmnet_enzymes", "iptmnet_ptm_ppi", "psp_regulatory",
                      "dbptm_functional", "ptm_stability",

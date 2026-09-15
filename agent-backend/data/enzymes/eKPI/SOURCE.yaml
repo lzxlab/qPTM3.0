@@ -1,0 +1,34 @@
+id: ekpi
+name: eKPI
+aspect: enzymes
+access: local
+
+description: >
+  Quantitative kinase–phosphosite correlations from cancer multi-omics
+  (experimental site list + Spearman ρ matrices). PMID 40194556.
+
+homepage: https://ekpi.omicsbio.info/
+api_base: null
+api_docs: https://ekpi.omicsbio.info/
+citation: >
+  eKPI: quantitative kinase–phosphosite evidence from cancer multi-omics.
+  Brief Bioinform 2025;26(2):bbaf143.
+doi: 10.1093/bib/bbaf143
+pmid: "40194556"
+license: See https://ekpi.omicsbio.info/
+notes: >
+  Site list: tables/sites.tsv (from ekpi_all_phosphosite.txt).
+  Quantitative matrices: EKPI_FINAL_RESULT_DIR (per-site gzip CSVs).
+  Build: `python -m app.sources.prepare_ekpi && python -m app.sources.build_index ekpi`
+
+tools:
+  - ekpi_kinases
+  - ekpi_quantitative
+
+files:
+  - id: sites
+    path: tables/sites.tsv
+    description: eKPI phosphosite inventory with per-site matrix file keys
+    columns: [uniprot, uniprot_base, gene, gene_token, protein_name, position, residue, site, flank_n, flank_c, file_key]
+    index_keys: [uniprot, uniprot_base, gene, gene_token, position, residue, site, file_key]
+    approx_rows: 197000

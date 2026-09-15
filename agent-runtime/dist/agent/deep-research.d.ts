@@ -4,3 +4,7 @@ export declare function runDeepResearch(userMessage: string, history: Array<{
     role: string;
     content: string;
 }>, session: SessionState): AsyncGenerator<AgentEvent>;
+export type ReportStreamChunk = {
+    kind: "text" | "reasoning";
+    content: string;
+};

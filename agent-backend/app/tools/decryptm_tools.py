@@ -54,8 +54,8 @@ def _meta() -> dict[str, str]:
 
 
 def _client() -> httpx.Client:
-    # decryptM payloads are large; allow longer wait than default tools
-    timeout = max(float(settings.http_timeout_seconds), 120.0)
+    # Cap remote wait so intent-level parallel runs do not stall on dense proteins.
+    timeout = min(max(float(settings.http_timeout_seconds), 30.0), 60.0)
     return httpx.Client(timeout=timeout, follow_redirects=True)
 
 
@@ -484,8 +484,8 @@ def _decryptm_drug_ptm(
                 limit=max(limit * 20, 200),
             )
 
-        # API supplements protein-centric queries; drug-only if local empty
-        use_api = bool(gene or uniprot_ac) or not local_raw
+        # Remote API only when local index has no rows for this target.
+        use_api = not local_raw
         if use_api:
             try:
                 api_raw, query_mode, resolved_drug, protein_info, api_notes = _fetch_api_curves(

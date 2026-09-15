@@ -60,7 +60,16 @@ class ToolRegistry:
         if not handler:
             return {"error": f"Unknown tool: {name}"}
         try:
+            from app.tools.identity_guard import check_gene_accession_mismatch
+
             args = _normalize_tool_arguments(arguments)
+            mismatch = check_gene_accession_mismatch(
+                args.get("gene"),
+                args.get("uniprot_ac"),
+                tool_name=name,
+            )
+            if mismatch:
+                return mismatch
             args = _filter_handler_kwargs(handler, args)
             result = handler(**args)
             logger.info(f"Tool {name} executed successfully")

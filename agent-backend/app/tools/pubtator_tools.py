@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+import time
 from typing import Any
 from urllib.parse import quote
 
@@ -128,11 +130,35 @@ def pubtator_literature_search(
     }
 
 
+_ncbi_lock = threading.Lock()
+_ncbi_last_call = 0.0
+
+
 def _ncbi_params() -> dict[str, str]:
     params: dict[str, str] = {"tool": "qptm-agent", "email": settings.ncbi_email or "qptm@localhost"}
     if settings.ncbi_api_key:
         params["api_key"] = settings.ncbi_api_key
     return params
+
+
+def _ncbi_throttle() -> None:
+    """Respect NCBI eutils rate limits (3 req/s without API key)."""
+    min_gap = 0.12 if settings.ncbi_api_key else 0.34
+    global _ncbi_last_call
+    with _ncbi_lock:
+        now = time.monotonic()
+        wait = min_gap - (now - _ncbi_last_call)
+        if wait > 0:
+            time.sleep(wait)
+        _ncbi_last_call = time.monotonic()
+
+
+def _ncbi_http_error(exc: httpx.HTTPError, label: str) -> dict[str, Any]:
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    payload: dict[str, Any] = {"error": f"{label}: {exc}"}
+    if status:
+        payload["http_status"] = status
+    return payload
 
 
 def _parse_efetch_xml(xml_text: str) -> list[dict[str, Any]]:
@@ -200,13 +226,14 @@ def pubmed_fetch_abstracts(
     url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
     try:
+        _ncbi_throttle()
         with _client() as client:
             resp = client.get(url, params=params)
             resp.raise_for_status()
             xml_text = resp.text
     except httpx.HTTPError as exc:
         logger.warning("PubMed efetch failed: %s", exc)
-        return {"error": f"PubMed efetch failed: {exc}"}
+        return _ncbi_http_error(exc, "PubMed efetch failed")
 
     rows = _parse_efetch_xml(xml_text)
     cap = max(400, int(max_chars or 4000))
@@ -270,13 +297,14 @@ def pubmed_esearch(query: str, *, limit: int = 20) -> dict[str, Any]:
     limit = max(1, min(int(limit or 20), 25))
     params = {**_ncbi_params(), "db": "pubmed", "term": q, "retmax": str(limit), "retmode": "json"}
     try:
+        _ncbi_throttle()
         with _client() as client:
             resp = client.get(NCBI_ESEARCH, params=params)
             resp.raise_for_status()
             payload = resp.json()
     except httpx.HTTPError as exc:
         logger.warning("NCBI esearch failed: %s", exc)
-        return {"error": f"NCBI esearch failed: {exc}"}
+        return _ncbi_http_error(exc, "NCBI esearch failed")
     except ValueError as exc:
         return {"error": f"NCBI esearch returned invalid JSON: {exc}"}
 
@@ -285,6 +313,7 @@ def pubmed_esearch(query: str, *, limit: int = 20) -> dict[str, Any]:
     titles: dict[str, str] = {}
     if idlist:
         try:
+            _ncbi_throttle()
             with _client() as client:
                 sm = client.get(
                     NCBI_ESUMMARY,

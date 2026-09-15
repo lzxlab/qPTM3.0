@@ -187,6 +187,24 @@ def _gpsuber_e3_sites(
             rows = exact
 
     hits = [_compact(r) for r in rows[: min(limit, 80)]]
+    protein_level_note = None
+    if position is not None and not hits and (resolved_ac or resolved_gene):
+        try:
+            protein_rows = query_records(
+                "gpsuber",
+                "ssesr",
+                equals=equals or None,
+                equals_ci={k: v for k, v in equals_ci.items() if k != "position"},
+                limit=min(max(limit, 40), 200),
+            )
+            n_prot = len(protein_rows)
+            if n_prot:
+                protein_level_note = (
+                    f"No ssESR at lysine {position}, but {n_prot} protein-level "
+                    f"GPS-Uber relation(s) exist for this substrate (try omitting position)."
+                )
+        except Exception:
+            protein_level_note = None
     keys = []
     if resolved_gene:
         keys.append(f"gene={resolved_gene}")
@@ -204,8 +222,11 @@ def _gpsuber_e3_sites(
     e3_list = sorted({h.get("e3_gene") for h in hits if h.get("e3_gene")})
     class_list = sorted({h.get("e3_class") for h in hits if h.get("e3_class")})
 
+    summary = _summarize(hits, keys or ["query"])
+    if protein_level_note:
+        summary = f"{summary} {protein_level_note}"
     return {
-        "summary": _summarize(hits, keys or ["query"]),
+        "summary": summary,
         "found": bool(hits),
         "gene": resolved_gene,
         "uniprot_ac": resolved_ac,

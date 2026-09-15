@@ -82,11 +82,21 @@ def _parse_entry(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def normalize_uniprot_ac(uniprot_ac: str | None) -> str | None:
+    """Canonical base accession (strip isoform suffix ``-N``)."""
+    ac = (uniprot_ac or "").strip().upper()
+    if not ac:
+        return None
+    return ac.split("-")[0]
+
+
 def _lookup_by_accession_uncached(uniprot_ac: str) -> dict[str, Any] | None:
     ac = (uniprot_ac or "").strip().upper()
     if not ac:
         return None
     data = _get(f"uniprotkb/{ac}", params={"format": "json"})
+    if not data and "-" in ac:
+        data = _get(f"uniprotkb/{ac.split('-')[0]}", params={"format": "json"})
     if not data:
         return None
     return _parse_entry(data)
@@ -129,6 +139,48 @@ def _lookup_by_gene_uncached(
     results = data.get("results") or []
     if not results and reviewed_only:
         return _lookup_by_gene_uncached(gene, organism_id=organism_id, reviewed_only=False)
+    if not results:
+        syn_parts = [
+            f"(gene_exact:{safe} OR gene_synonym:{safe})",
+            f"organism_id:{organism_id}",
+        ]
+        if reviewed_only:
+            syn_parts.append("reviewed:true")
+        data = _get(
+            "uniprotkb/search",
+            params={"query": " AND ".join(syn_parts), "format": "json", "size": "5"},
+        )
+        results = (data or {}).get("results") or []
+        if not results and reviewed_only:
+            return _lookup_by_gene_synonym_uncached(
+                gene, organism_id=organism_id, reviewed_only=False,
+            )
+    if not results:
+        return None
+    return _parse_entry(results[0])
+
+
+def _lookup_by_gene_synonym_uncached(
+    gene: str,
+    *,
+    organism_id: int = 9606,
+    reviewed_only: bool = True,
+) -> dict[str, Any] | None:
+    symbol = (gene or "").strip()
+    if not symbol:
+        return None
+    safe = symbol.replace("'", "")
+    parts = [
+        f"(gene_exact:{safe} OR gene_synonym:{safe})",
+        f"organism_id:{organism_id}",
+    ]
+    if reviewed_only:
+        parts.append("reviewed:true")
+    data = _get(
+        "uniprotkb/search",
+        params={"query": " AND ".join(parts), "format": "json", "size": "5"},
+    )
+    results = (data or {}).get("results") or []
     if not results:
         return None
     return _parse_entry(results[0])
@@ -210,9 +262,10 @@ def resolve_identity(
     If both gene and accession are given, they must refer to the same protein.
     A mismatched accession is discarded and the gene is re-resolved.
     """
+    ac_norm = normalize_uniprot_ac(uniprot_ac) if uniprot_ac else None
     ident_ac: dict[str, Any] | None = None
-    if uniprot_ac:
-        ident_ac = lookup_by_accession(uniprot_ac)
+    if ac_norm:
+        ident_ac = lookup_by_accession(ac_norm)
 
     if gene and ident_ac:
         if gene_matches_identity(gene, ident_ac):
@@ -220,7 +273,7 @@ def resolve_identity(
         logger.warning(
             "gene/uniprot mismatch: gene=%s accession=%s identity_gene=%s — resolving by gene",
             gene,
-            uniprot_ac,
+            ac_norm,
             ident_ac.get("gene"),
         )
         ident_ac = None

@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { cfg } from "../config.js";
+import { extractReasoning, isEmptyLlmResult } from "./reasoning.js";
 import { getOpenCodeSessionId } from "./session-context.js";
 
 const ZEN_PREFIXES = ["gpt-", "gemini-", "claude-", "kimi-", "qwen"];
@@ -12,6 +13,7 @@ function baseUrlForModel(model: string): string {
 
 export type LlmStreamEvent =
   | { type: "text"; content: string }
+  | { type: "reasoning"; content: string }
   | { type: "tool_call"; id: string; name: string; arguments: Record<string, unknown> }
   | { type: "done" };
 
@@ -82,7 +84,11 @@ export class LlmClient {
       totalTimeoutMs?: number;
       maxModels?: number;
     } = {},
-  ): Promise<{ content: string; toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }> {
+  ): Promise<{
+    content: string;
+    reasoning: string;
+    toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+  }> {
     const models = this.modelsForAttempt(options.maxModels);
     const deadline = options.totalTimeoutMs ? Date.now() + options.totalTimeoutMs : null;
     let lastErr: Error | null = null;
@@ -101,15 +107,17 @@ export class LlmClient {
           },
           { signal: AbortSignal.timeout(timeout), ...this.requestOptionsFor(model) },
         );
-        const msg = res.choices[0]?.message;
+        const choice = res.choices[0];
+        const msg = choice?.message;
         const content = msg?.content || "";
+        const reasoning = extractReasoning(msg) || extractReasoning(choice);
         const toolCalls = (msg?.tool_calls || []).map((tc) => ({
           id: tc.id,
           name: tc.function.name,
           arguments: JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>,
         }));
-        if (!content && toolCalls.length === 0) throw new Error("empty response");
-        return { content, toolCalls };
+        if (isEmptyLlmResult(content, toolCalls)) throw new Error("empty response");
+        return { content, reasoning, toolCalls };
       } catch (e) {
         lastErr = e instanceof Error ? e : new Error(String(e));
       }
@@ -154,6 +162,8 @@ export class LlmClient {
           const delta = chunk.choices[0]?.delta;
           if (!delta) continue;
           if (delta.content) yield { type: "text", content: delta.content };
+          const reasoning = extractReasoning(delta) || extractReasoning(chunk.choices[0]);
+          if (reasoning) yield { type: "reasoning", content: reasoning };
           if (delta.tool_calls) {
             for (const tc of delta.tool_calls) {
               const idx = tc.index ?? 0;
