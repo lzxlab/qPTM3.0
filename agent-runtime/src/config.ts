@@ -46,6 +46,8 @@ export const cfg = {
   drSynthesisMaxModels: Number(process.env.DR_SYNTHESIS_MAX_MODELS || 2),
   skillsDir: resolve(__dirname, "..", process.env.SKILLS_DIR || "../skills"),
   qaMaxRounds: 3,
+  /** Unified ReAct tool rounds (single scheduler). */
+  reactMaxRounds: Number(process.env.REACT_MAX_ROUNDS || 8),
   drMaxPlanSteps: 12,
   drSupervisorMaxRounds: Number(process.env.DR_SUPERVISOR_MAX_ROUNDS || 6),
   corsOrigins: splitCsv(process.env.CORS_ORIGINS || "*"),

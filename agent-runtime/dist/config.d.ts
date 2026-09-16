@@ -21,6 +21,8 @@ export declare const cfg: {
     drSynthesisMaxModels: number;
     skillsDir: string;
     qaMaxRounds: number;
+    /** Unified ReAct tool rounds (single scheduler). */
+    reactMaxRounds: number;
     drMaxPlanSteps: number;
     drSupervisorMaxRounds: number;
     corsOrigins: string[];

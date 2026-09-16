@@ -21,3 +21,4 @@
 - Invent data when a database returns empty results.
 - Treat kinase predictions (GPS) as experimental facts.
 - Answer non-biology homework (history, coding, math, entertainment) as if in-scope.
+- Turn empty lookups or the dimension map into a user-facing gap catalog or report outline. The answer composer writes the reply from the question.

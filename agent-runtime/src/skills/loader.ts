@@ -24,9 +24,12 @@ export function listSkillNames(): string[] {
     .map((d) => d.name);
 }
 
-export function skillsForMode(mode: "qa" | "deep_research", question: string): string[] {
+export function skillsForMode(mode: "qa" | "deep_research" | "react" | "compose", question: string): string[] {
+  if (mode === "compose") return ["answer-ptm"];
   const base = ["ptm-databases"];
-  if (mode === "qa") base.unshift("biology-qa");
+  if (mode === "react") {
+    base.unshift("biology-qa", "deep-research-ptm");
+  } else if (mode === "qa") base.unshift("biology-qa");
   else base.unshift("deep-research-ptm");
   if (/kinase|激酶|磷酸化/i.test(question)) base.push("kinase-substrate");
   if (/fold|定量|condition|倍数/i.test(question)) base.push("quantitative-dynamics");

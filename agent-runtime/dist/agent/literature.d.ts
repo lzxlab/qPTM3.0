@@ -15,3 +15,5 @@ export declare function entitiesMissingFromQuery(query: string, entities: string
 export declare function withFrontierEntities(query: string, entities: string[], max?: number): string;
 export declare function literatureTokens(memory: Pick<InvestigationMemory, "gene" | "position" | "ptm_type">, focus?: string, question?: string): string[];
 export declare function rankLiteraturePapers(papers: LitPaper[], tokens: string[], gene?: string | null): LitPaper[];
+export declare function papersNeedAbstracts(papers: LitPaper[]): boolean;
+export declare function mergeLiteratureResults(search: QptmToolResult, abstracts: QptmToolResult): QptmToolResult;

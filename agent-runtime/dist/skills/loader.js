@@ -24,8 +24,13 @@ export function listSkillNames() {
         .map((d) => d.name);
 }
 export function skillsForMode(mode, question) {
+    if (mode === "compose")
+        return ["answer-ptm"];
     const base = ["ptm-databases"];
-    if (mode === "qa")
+    if (mode === "react") {
+        base.unshift("biology-qa", "deep-research-ptm");
+    }
+    else if (mode === "qa")
         base.unshift("biology-qa");
     else
         base.unshift("deep-research-ptm");

@@ -1,4 +1,6 @@
 import { InvestigationMemory } from "../context/memory.js";
+import { getLlm } from "../llm/client.js";
+import type { McpToolDef } from "../mcp/hub.js";
 
 /** MCP intent tools exposed via tools/list (not registry tool names). */
 export const MCP_INTENT_TOOLS = [
@@ -103,5 +105,96 @@ export function retrieveTools(question: string, memory: InvestigationMemory, top
 
 /** @deprecated Use retrieveIntentToolsDeep */
 export function retrieveToolsDeep(question: string, memory: InvestigationMemory): string[] {
+  return retrieveIntentToolsDeep(question, memory);
+}
+
+function formatCatalogForPrompt(catalog: Array<{ name: string; description?: string }>): string {
+  return catalog
+    .map((t, i) => `${i}. ${t.name}: ${t.description || ""}`.trim())
+    .join("\n");
+}
+
+/**
+ * Parse `TOOLS: [0, 2, 5]` from an LLM retriever reply.
+ * Empty list is valid (greeting / no tools). Missing or unparseable → null (fallback).
+ */
+export function parseToolIndices(response: string, catalogLength: number): number[] | null {
+  if (!response || catalogLength < 0) return null;
+  const m = String(response).match(/TOOLS:\s*\[([\s\S]*?)\]/i);
+  if (!m) return null;
+  const inner = m[1].trim();
+  if (!inner) return [];
+  const nums: number[] = [];
+  let anyToken = false;
+  for (const part of inner.split(",")) {
+    const token = part.trim();
+    if (!token) continue;
+    anyToken = true;
+    const n = Number(token);
+    if (!Number.isInteger(n) || n < 0 || n >= catalogLength) continue;
+    if (!nums.includes(n)) nums.push(n);
+  }
+  if (anyToken && !nums.length) return null;
+  return nums;
+}
+
+function retrieverPrompt(question: string, catalog: Array<{ name: string; description?: string }>): string {
+  return `You select tools for a biomedical PTM research assistant. The next step is a ReAct loop; you only choose the menu, not the call order.
+
+USER QUERY:
+${question}
+
+AVAILABLE TOOLS:
+${formatCatalogForPrompt(catalog)}
+
+Respond with ONLY:
+TOOLS: [list of indices]
+
+Examples:
+TOOLS: [0, 2, 5]
+TOOLS: []
+
+Guidelines:
+1. Greetings, thanks, chit-chat, or clearly off-topic questions: TOOLS: []
+2. Concept questions that need no database: TOOLS: [] unless a lookup would materially help
+3. Be generous for evidence-seeking or multi-aspect questions — include every tool that might help, including search_literature
+4. Do not exclude a database tool just because it is not named in the query
+5. Prefer including search_literature when the user asks how/why/mechanism or wants papers`;
+}
+
+function namesFromIndices(
+  indices: number[],
+  catalog: Array<{ name: string }>,
+): string[] {
+  const out: string[] = [];
+  for (const i of indices) {
+    const name = catalog[i]?.name;
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+/** LLM picks MCP tools by catalog index; keyword retriever is fallback only. */
+export async function retrieveIntentToolsLlm(
+  question: string,
+  memory: InvestigationMemory,
+  catalog: Array<Pick<McpToolDef, "name" | "description">> = [],
+): Promise<string[]> {
+  const list =
+    catalog.length > 0
+      ? catalog.map((t) => ({ name: t.name, description: t.description || "" }))
+      : MCP_INTENT_TOOLS.map((name) => ({ name, description: "" }));
+
+  try {
+    const llm = getLlm();
+    const { content } = await llm.chatCompletion(
+      [{ role: "user", content: retrieverPrompt(question, list) }],
+      { maxTokens: 400, temperature: 0, maxModels: 1 },
+    );
+    const indices = parseToolIndices(content, list.length);
+    if (indices) return namesFromIndices(indices, list);
+  } catch {
+    /* fall through */
+  }
   return retrieveIntentToolsDeep(question, memory);
 }

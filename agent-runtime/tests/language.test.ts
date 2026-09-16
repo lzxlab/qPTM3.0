@@ -27,7 +27,7 @@ for (const q of ptmSteerFollowUps("zh")) {
 assert.equal(CJK.test(failedGenerationMessage("en")), false);
 assert.equal(CJK.test(failedGenerationMessage("zh")), true);
 
-const promptFiles = ["qa-react.ts", "deep-research.ts", "dr-research-loop.ts", "run.ts"];
+const promptFiles = ["qa-react.ts", "deep-research.ts", "dr-research-loop.ts", "run.ts", "react-loop.ts", "compose-answer.ts"];
 for (const file of promptFiles) {
   const src = readFileSync(join(agentSrc, file), "utf8");
   const setPhaseCalls = src.match(/setPhase\((?:[^()]*|\([^()]*\))*\)/gs) || [];
@@ -42,13 +42,15 @@ for (const file of promptFiles) {
 }
 
 const qa = readFileSync(join(agentSrc, "qa-react.ts"), "utf8");
-const dr = readFileSync(join(agentSrc, "deep-research.ts"), "utf8");
+const compose = readFileSync(join(agentSrc, "compose-answer.ts"), "utf8");
 const loop = readFileSync(join(agentSrc, "dr-research-loop.ts"), "utf8");
 assert.match(qa, /ANSWER_LANGUAGE_RULE/);
-assert.match(dr, /ANSWER_LANGUAGE_RULE/);
+assert.match(compose, /ANSWER_LANGUAGE_RULE/);
 assert.match(loop, /You are the PTM deep-research supervisor/);
+const react = readFileSync(join(agentSrc, "react-loop.ts"), "utf8");
+assert.match(react, /ANSWER_LANGUAGE_RULE/);
 assert.equal(qa.includes("你是 qPTM 生物学专家"), false);
-assert.equal(dr.includes("你是 PTM 深度调研专家"), false);
+assert.equal(compose.includes("你是 PTM 深度调研专家"), false);
 assert.equal(loop.includes("你是 PTM 深度调研调度器"), false);
 
 const clarify = readFileSync(join(agentSrc, "clarification.ts"), "utf8");

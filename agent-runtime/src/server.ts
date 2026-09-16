@@ -19,7 +19,7 @@ import {
   clearConversationState,
 } from "./storage/conversations.js";
 import { parseConversationMessagePost } from "./storage/conversation-messages.js";
-import { classifyQueryMode, gateReply, detectLang } from "./agent/gate.js";
+import { isCollectionRequest } from "./agent/gate.js";
 import { parseEntities } from "./context/memory.js";
 import { resetSession } from "./context/session.js";
 import { sanitizeUserVisibleText } from "./agent/protocol.js";
@@ -131,14 +131,12 @@ app.post("/classify", async (c) => {
     ? (body.upload_filenames as unknown[]).map((n) => String(n))
     : [];
   const entities = parseEntities(message);
-  const mode = classifyQueryMode(message, entities, filenames);
-  const lang = detectLang(message);
-  const routeCollection = mode === "collection";
+  const routeCollection = isCollectionRequest(message, entities, filenames);
   return c.json({
-    mode,
+    mode: routeCollection ? "collection" : "chat",
     entities,
     route_collection: routeCollection,
-    reply: gateReply(mode, lang),
+    reply: null,
   });
 });
 

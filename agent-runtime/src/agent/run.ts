@@ -11,12 +11,9 @@ import { loadConversationState } from "../storage/conversations.js";
 import {
   mergeClarification,
   applyClarificationToMemory,
-  buildDeepResearchClarification,
-  clarificationEvent,
 } from "./clarification.js";
-import { runQA } from "./qa-react.js";
-import { runDeepResearch } from "./deep-research.js";
-import { classifyQueryMode, shouldSkipInvestigation } from "./gate.js";
+import { detectLang, isCollectionRequest } from "./gate.js";
+import { generateFollowUps, ptmSteerFollowUps } from "./followups.js";
 import {
   mergeEntities,
   normalizeTargetIdentity,
@@ -24,12 +21,12 @@ import {
   wantsSameSite,
 } from "../context/memory.js";
 import { AgentPhase, setPhase } from "./phase.js";
-import { routeQuery } from "./router.js";
+import { runReactLoop } from "./react-loop.js";
+import { composeAnswer } from "./compose-answer.js";
+import { sanitizeUserVisibleText, stripProtocolMarkup } from "./protocol.js";
+import type { Citation } from "./citations.js";
 
 export type AgentMode = "qa" | "deep_research";
-
-/** Soft cap so the agent can ask multiple times, but not loop forever. */
-const MAX_CLARIFY_ROUNDS = 4;
 
 export interface RunAgentOptions {
   message: string;
@@ -69,11 +66,19 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
     session.clarifyRound = 0;
   }
   mergeEntities(session.memory, parsed, userMessage);
-  const queryMode = classifyQueryMode(userMessage, parsed);
-  session.memory.query_mode = queryMode;
-  session.lastMode = shouldSkipInvestigation(queryMode) ? "qa" : "deep_research";
 
-  let skippedClarify = false;
+  if (isCollectionRequest(userMessage, parsed, [])) {
+    const lang = detectLang(userMessage);
+    const reply =
+      lang === "zh"
+        ? "这是文献采集任务。请在对话里走数据采集流程（上传 PDF/补充表，或带 PMID 的收集请求），我不会在问答循环里执行入库。"
+        : "This looks like a literature-collection request. Use the data-collection flow (upload a PDF/supplement, or a PMID collect request). I will not run ingestion inside the Q&A loop.";
+    yield setPhase(session, AgentPhase.synthesis, "Collection is a separate pipeline");
+    yield { type: "text", content: reply };
+    yield { type: "follow_up_questions", questions: ptmSteerFollowUps(lang).slice(0, 3) };
+    yield { type: "done" };
+    return;
+  }
 
   if (opts.clarificationResponse) {
     const base = (session.deepResearchBrief || userMessage).trim();
@@ -89,69 +94,89 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
         opts.clarificationResponse.free_text || "",
       );
     } else {
-      skippedClarify = true;
       userMessage = base;
     }
     session.deepResearchBrief = userMessage;
-    session.clarifyRound += 1;
-    mergeEntities(session.memory, parseEntities(userMessage), userMessage);
-    normalizeTargetIdentity(session.memory, userMessage);
     session.pendingClarification = null;
+    mergeEntities(session.memory, parseEntities(userMessage), userMessage);
   } else {
-    session.clarifyRound = 0;
     session.deepResearchBrief = userMessage;
   }
 
-  const decision = routeQuery({
-    queryMode,
-    clarificationResponse: opts.clarificationResponse,
-    memory: session.memory,
-    clarifyRound: session.clarifyRound,
-    maxClarifyRounds: MAX_CLARIFY_ROUNDS,
-    skippedClarify,
-  });
+  normalizeTargetIdentity(session.memory, userMessage);
+  session.lastMode = "qa";
 
-  yield setPhase(session, AgentPhase.routing, "Routing the question");
+  let draftAnswer = "";
+  let toolsUsed: string[] = [];
+  for await (const event of runReactLoop(userMessage, opts.history, session)) {
+    if (event.type === "_react_finished") {
+      draftAnswer = String(event.answer || "");
+      toolsUsed = Array.isArray(event.toolsUsed) ? (event.toolsUsed as string[]) : [];
+      continue;
+    }
+    yield event;
+  }
+
+  const artifacts = session.artifacts;
+  const citations: Citation[] = [...session.citations];
+  const lang = detectLang(userMessage);
+  if (toolsUsed.length) session.lastMode = "qa";
+
+  yield setPhase(session, AgentPhase.synthesis, "Writing answer");
   yield {
-    type: "route_decision",
-    handler: decision.handler,
-    query_mode: queryMode,
-    specific_enough: decision.specificEnough,
-    may_clarify: decision.mayClarify,
-    entities: {
-      gene: session.memory.gene || "",
-      position: session.memory.position || 0,
-      uniprot_ac: session.memory.uniprot_ac || "",
-      pmid: session.memory.pmid || "",
+    type: "synthesis_started",
+    evidence: {
+      db_results: artifacts.findDbResults().length,
+      db_rows: artifacts.dbRowCount(),
+      literature: artifacts.findLiterature().length,
+      web_search: artifacts.findWebSearch().length,
+      citations: citations.length,
     },
   };
 
-  if (decision.handler === "qa_direct") {
-    yield* runQA(userMessage, opts.history, session);
-    return;
-  }
-
-  if (decision.handler === "clarify") {
-    yield setPhase(
-      session,
-      AgentPhase.clarifying,
-      session.clarifyRound > 0
-        ? "Checking whether more clarification is needed…"
-        : "Thinking about what to clarify…",
-    );
-    const payload = await buildDeepResearchClarification(userMessage, session.memory, {
-      round: session.clarifyRound,
-      maxRounds: MAX_CLARIFY_ROUNDS,
-    });
-    if (payload.needs_clarification && (payload.fields || []).length) {
-      session.pendingClarification = { message: userMessage, payload };
-      yield clarificationEvent(payload);
-      return;
+  let body = "";
+  try {
+    for await (const chunk of composeAnswer(
+      userMessage,
+      opts.history,
+      session.memory,
+      artifacts,
+      citations,
+    )) {
+      if (chunk.kind === "reasoning") {
+        const thought = stripProtocolMarkup(chunk.content).text;
+        if (thought) yield { type: "report_thought", content: thought };
+        continue;
+      }
+      if (chunk.kind !== "text" || !chunk.content) continue;
+      body += chunk.content;
+      yield { type: "text", content: chunk.content };
     }
+  } catch (e) {
+    const fallback =
+      lang === "zh"
+        ? "生成失败，请重试。"
+        : "Generation failed. Please retry.";
+    if (!body.trim()) {
+      body = sanitizeUserVisibleText(draftAnswer, lang) || fallback;
+      yield { type: "text", content: body };
+    }
+    console.warn("composeAnswer failed:", e);
   }
 
-  normalizeTargetIdentity(session.memory, userMessage);
-  yield* runDeepResearch(userMessage, opts.history, session);
+  const answer = sanitizeUserVisibleText(body, lang);
+  yield { type: "sources", citations };
+  session.citations = citations;
+  const followUps = await generateFollowUps(
+    userMessage,
+    answer,
+    session.memory,
+    artifacts,
+    "qa",
+    toolsUsed,
+  );
+  yield { type: "follow_up_questions", questions: followUps.length ? followUps : ptmSteerFollowUps(lang) };
+  yield { type: "done" };
 }
 
 export function snapshotSession(sessionId: string, conversationId?: string): PersistedSession | null {

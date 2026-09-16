@@ -31,19 +31,12 @@ You orchestrate database search and, when needed, literature follow-up.
 4. Round 2 only if abstracts/DB reveal **new** entities not in round 1. Then merge PMIDs, fetch abstracts, and OA full text for the top hits.
 5. Literature supplements gaps; do not treat PubTator titles as qPTM quantitative facts.
 
-## Report structure (flexible long form)
-Adapt sections to the question. Typical useful blocks (include only when relevant):
-1. **Executive summary**
-2. **Target & PTM context**
-3. **Evidence sections** driven by the goal (regulators, quantitation, localization, function/disease, drugs, literature — as needed). If `web_search` ran, a brief web note may appear at the end of a relevant section or in Limitations — never as a standalone high-weight section.
-4. **Consensus vs debate**
-5. **Limitations & gaps** — separate database empty vs literature-filled vs predicted-only vs web-only rumor
-6. **Sources** (numbered)
+## User-visible writing
+This skill is for **tool routing**, not for the user-facing answer. The answer composer does **not** load this file. Gap checks stay here for the next tool call; do not dump executive summary, evidence inventories, or a Limitations & gaps chapter into the reply.
 
 Never label user-facing headings as WHO / WHEN / WHERE / WHY.
 
 ## Reasoning discipline
-- Label **database facts** vs **literature claims** vs **web (secondary)** vs **mechanistic hypotheses**.
-- Priority: database > literature > web. Web snippets must not override curated DB rows or PubMed abstracts, and must not be presented as quantitative experiments.
-- Never collapse predicted scores into experimental claims.
-- Prefer evidence the user asked for; mark gaps honestly when data is missing.
+- For routing: prefer experimental/curated rows over predictions; web is lowest weight.
+- Never collapse predicted scores into experimental claims when judging whether a lookup is enough.
+- Do not tell the answer writer to list every empty dimension.

@@ -112,9 +112,9 @@ assert.equal(store.getWebSearchContext(80).length, 80);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drSrc = readFileSync(join(here, "../src/agent/deep-research.ts"), "utf8");
-assert.match(drSrc, /getWebSearchContext/);
-assert.match(drSrc, /database facts > literature > web/);
-assert.match(drSrc, /rowsForPrompt\(12000\),\s*\n\s*artifacts\.getLiteratureContext\(\),\s*\n\s*artifacts\.getWebSearchContext\(\)/);
+assert.match(drSrc, /composeAnswer/);
+assert.equal(drSrc.includes("database facts > literature > web"), false);
+assert.equal(drSrc.includes("rowsForPrompt(12000)"), false);
 
 assert.equal(intentForFocus("kinase"), "get_upstream_enzymes");
 assert.equal(intentForFocus("condition"), "get_site_conditions");

@@ -1,16 +1,14 @@
-import { cfg } from "../config.js";
-import { mergeEntities, memoryPromptBlock, normalizeTargetIdentity, parseEntities, } from "../context/memory.js";
+import { mergeEntities, normalizeTargetIdentity, parseEntities, } from "../context/memory.js";
 import { readQptmResource } from "../mcp/hub.js";
 import { loadSkills, skillsForMode } from "../skills/loader.js";
-import { getLlm } from "../llm/client.js";
-import { detectLang, ANSWER_LANGUAGE_RULE } from "./gate.js";
+import { detectLang } from "./gate.js";
 import { generateFollowUps, ptmSteerFollowUps } from "./followups.js";
 import { cannotInvestigateSiteLevel } from "./clarification.js";
 import { resolveSessionTarget, } from "./resolve-target.js";
 import { sanitizeUserVisibleText, stripProtocolMarkup } from "./protocol.js";
 import { AgentPhase, setPhase } from "./phase.js";
 import { seedDrStateFromArtifacts, runSupervisorLoop, } from "./dr-research-loop.js";
-import { ThoughtFlusher } from "./thought-flush.js";
+import { composeAnswer } from "./compose-answer.js";
 export async function* runDeepResearch(userMessage, history, session) {
     const memory = session.memory;
     const artifacts = session.artifacts;
@@ -52,7 +50,7 @@ export async function* runDeepResearch(userMessage, history, session) {
     const citations = [...session.citations];
     const state = seedDrStateFromArtifacts(artifacts);
     yield* runSupervisorLoop(userMessage, memory, session, skills, sourcesCatalog, lang, artifacts, citations, state, history);
-    yield setPhase(session, AgentPhase.synthesis, "Writing research report");
+    yield setPhase(session, AgentPhase.synthesis, "Writing answer");
     yield {
         type: "synthesis_started",
         evidence: {
@@ -61,12 +59,11 @@ export async function* runDeepResearch(userMessage, history, session) {
             literature: artifacts.findLiterature().length,
             web_search: artifacts.findWebSearch().length,
             citations: citations.length,
-            catalog: artifacts.catalogForPrompt(8, { skipEmpty: true }),
         },
     };
     let reportBody = "";
     try {
-        for await (const chunk of streamDeepReport(userMessage, history, memory, artifacts, skills, sourcesCatalog, citations, lang)) {
+        for await (const chunk of composeAnswer(userMessage, history, memory, artifacts, citations)) {
             if (chunk.kind === "reasoning") {
                 const thought = stripProtocolMarkup(chunk.content).text;
                 if (thought)
@@ -81,8 +78,8 @@ export async function* runDeepResearch(userMessage, history, session) {
     }
     catch (e) {
         const fallback = lang === "zh"
-            ? "报告生成超时或失败，请缩小问题范围后重试。"
-            : "Report generation timed out or failed. Try a narrower question and retry.";
+            ? "生成失败，请缩小问题范围后重试。"
+            : "Generation failed. Try a narrower question and retry.";
         if (!reportBody.trim()) {
             reportBody = fallback;
             yield { type: "text", content: fallback };
@@ -96,68 +93,6 @@ export async function* runDeepResearch(userMessage, history, session) {
     yield { type: "follow_up_questions", questions: followUps };
     yield { type: "done" };
 }
-function buildDeepReportMessages(question, history, memory, artifacts, skills, catalog, citations, lang) {
-    const citeList = citations.map((c) => `${c.id}: ${c.database}`).join(", ");
-    const system = `You are a PTM deep-research expert. Write a sectioned, well-cited report from collected evidence.
-Rules:
-1. Organize by the user's question — no forced WHO/WHEN/WHERE/WHY headings.
-2. Separate database facts vs literature depth-search vs hypotheses; label evidence levels.
-3. Never present GPS/PhosLLPS predictions as experimental proof.
-4. [empty_result]=no DB records; [call_bug]=call failed; state gaps honestly.
-5. Literature-filled sections must cite PubMed/PubTator — not qPTM quantitative claims.
-6. If evidence is empty or only empty_result and no gene/site was resolved: do not write an empty section skeleton or empty retrieval lists — say the target is missing and ask for a protein and residue.
-7. If the user asked to list query hits, enumerate from Database rows below — do not recap only the names in the short summary.
-8. Evidence priority: database facts > literature > web. If a "Web search (secondary, low weight)" block is present, mention it only as a brief supplement (a sentence or short paragraph), labeled as web/secondary. Never treat web snippets as quantitative experiments or let them override database or literature. If that block is absent, do not invent a web section.
-${ANSWER_LANGUAGE_RULE}
-Citations: ${citeList}
-Resolved: ${memoryPromptBlock(memory)}.`;
-    const evidence = [
-        memory.findings_summary,
-        artifacts.catalogForPrompt(12, { skipEmpty: true }),
-        artifacts.rowsForPrompt(12000),
-        artifacts.getLiteratureContext(),
-        artifacts.getWebSearchContext(),
-    ]
-        .filter(Boolean)
-        .join("\n\n");
-    return [
-        { role: "system", content: `${system}\n\n${skills}\n${catalog.slice(0, 3500)}` },
-        ...history.slice(-6).map((h) => ({
-            role: h.role,
-            content: h.content,
-        })),
-        {
-            role: "user",
-            content: `Research question: ${question}\n\nEvidence collected:\n${evidence.slice(0, 20000)}`,
-        },
-    ];
-}
-async function* streamDeepReport(question, history, memory, artifacts, skills, catalog, citations, lang) {
-    const messages = buildDeepReportMessages(question, history, memory, artifacts, skills, catalog, citations, lang);
-    const llm = getLlm();
-    let gotText = false;
-    const thoughts = new ThoughtFlusher();
-    for await (const ev of llm.chatCompletionStream(messages, {
-        maxTokens: cfg.drSynthesisMaxTokens,
-        temperature: 0.35,
-        maxModels: cfg.drSynthesisMaxModels,
-        timeoutMs: cfg.drSynthesisTimeoutMs,
-        totalTimeoutMs: cfg.drSynthesisTimeoutMs,
-    })) {
-        if (ev.type === "reasoning" && ev.content) {
-            const flushed = thoughts.push(ev.content);
-            if (flushed)
-                yield { kind: "reasoning", content: flushed };
-            continue;
-        }
-        if (ev.type !== "text" || !ev.content)
-            continue;
-        gotText = true;
-        yield { kind: "text", content: ev.content };
-    }
-    const rest = thoughts.flush();
-    if (rest)
-        yield { kind: "reasoning", content: rest };
-    if (!gotText)
-        throw new Error("empty DR report stream");
+export async function* streamDeepReport(question, history, memory, artifacts, _skills, _catalog, citations, _lang) {
+    yield* composeAnswer(question, history, memory, artifacts, citations);
 }

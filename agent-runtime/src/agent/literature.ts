@@ -149,3 +149,32 @@ export function rankLiteraturePapers(
   const min = geneTok ? 2 : 1;
   return scored.filter((p) => (p.score || 0) >= min);
 }
+
+export function papersNeedAbstracts(papers: LitPaper[]): boolean {
+  if (!papers.length) return true;
+  return !papers.some((p) => Boolean(p.abstract && p.abstract.trim()));
+}
+
+export function mergeLiteratureResults(
+  search: QptmToolResult,
+  abstracts: QptmToolResult,
+): QptmToolResult {
+  const blocks = [...(Array.isArray(search.blocks) ? search.blocks : []), ...(Array.isArray(abstracts.blocks) ? abstracts.blocks : [])];
+  const papers = papersFromToolResult(abstracts);
+  const absCount = papers.filter((p) => p.abstract?.trim()).length;
+  const summary = [search.summary, abstracts.summary, absCount ? `Fetched ${absCount} abstract(s)` : ""]
+    .filter(Boolean)
+    .join(" | ")
+    .slice(0, 800);
+  const ok = Boolean(search.success || abstracts.success);
+  return {
+    success: ok,
+    summary,
+    data: abstracts.data ?? search.data,
+    blocks,
+    intent: "search_literature",
+    error_kind: ok ? null : abstracts.error_kind || search.error_kind || "empty_result",
+    missing: abstracts.missing?.length ? abstracts.missing : search.missing,
+    resolved: abstracts.resolved || search.resolved,
+  };
+}

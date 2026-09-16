@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import {
   classifyQueryMode,
-  shouldSkipInvestigation,
 } from "../src/agent/gate.js";
 import {
   MCP_INTENT_TOOLS,
@@ -17,8 +16,6 @@ const kinaseQZh = "哪些激酶磷酸化 AKT1 S473？";
 const conceptQ = "What is phosphorylation?";
 
 assert.equal(classifyQueryMode(kinaseQ, parseEntities(kinaseQ)), "research");
-assert.equal(shouldSkipInvestigation(classifyQueryMode(conceptQ, parseEntities(conceptQ))), true);
-assert.equal(shouldSkipInvestigation(classifyQueryMode(kinaseQ, parseEntities(kinaseQ))), false);
 
 const kinaseTools = retrieveIntentTools(kinaseQ, memory, 4);
 assert.ok(kinaseTools.includes("get_upstream_enzymes"), `expected kinase intent, got ${kinaseTools.join(",")}`);

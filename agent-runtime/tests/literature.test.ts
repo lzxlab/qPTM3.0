@@ -7,6 +7,8 @@ import {
   extractPmids,
   literatureTokens,
   papersFromToolResult,
+  papersNeedAbstracts,
+  mergeLiteratureResults,
   rankLiteraturePapers,
   withFrontierEntities,
   entitiesMissingFromQuery,
@@ -37,6 +39,20 @@ const papers = papersFromToolResult({
   ],
 });
 assert.equal(papers.length, 2);
+assert.equal(papersNeedAbstracts(papers), false);
+assert.equal(papersNeedAbstracts([{ pmid: "11111111", title: "t", abstract: "" }]), true);
+
+const merged = mergeLiteratureResults(
+  { success: true, summary: "Merged 2 unique PMID(s)", data: null, blocks: [{ rows: [{ pmid: "33333333" }] }] },
+  {
+    success: true,
+    summary: "2 abstracts",
+    data: null,
+    blocks: [{ rows: [{ pmid: "33333333", abstract: "phosphorylation of AKT1" }] }],
+  },
+);
+assert.match(merged.summary, /Fetched 1 abstract/);
+assert.equal((merged.blocks || []).length, 2);
 
 const tokens = literatureTokens({ gene: "AKT1", position: 473, ptm_type: "phosphorylation" }, "kinase", "");
 const ranked = rankLiteraturePapers(papers, tokens, "AKT1");
@@ -65,6 +81,9 @@ assert.equal(isWebSearchFailure("AKT1 phosphorylation review\nhttps://example.or
 
 const qa = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/agent/qa-react.ts"), "utf8");
 assert.match(qa, /name: "web_search"/);
+const react = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/agent/react-loop.ts"), "utf8");
+assert.match(react, /name: "web_search"/);
+assert.match(react, /callSearchLiteratureDeep/);
 assert.equal(qa.includes("needsWebSearch"), false);
 const gate = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/agent/gate.ts"), "utf8");
 assert.equal(gate.includes("needsWebSearch"), false);

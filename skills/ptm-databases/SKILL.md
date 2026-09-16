@@ -1,6 +1,6 @@
 # qPTM research dimensions → MCP intent tools
 
-Use this map to **choose databases** and **judge evidence gaps**. It is NOT a fixed report outline — only include dimensions the user asked about in the final answer.
+Use this map to **choose databases** and **judge evidence gaps for the next tool call**. It is NOT an answer outline and must not be copied into the user-visible reply.
 
 ## Dimension map
 
@@ -39,5 +39,5 @@ Use this map to **choose databases** and **judge evidence gaps**. It is NOT a fi
 ## Rules
 
 - Prefer qPTM for quantitative human PTM.
-- Label GPS / PhosLLPS / dSCOPE predictions as predicted in synthesis.
-- Empty DB → state limitation; do not fabricate.
+- Label GPS / PhosLLPS / dSCOPE predictions as predicted when using those rows to answer.
+- Empty DB → try another intent or literature internally; do not turn empty lookups into a user-facing gap catalog.
