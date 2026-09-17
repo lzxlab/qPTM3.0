@@ -23,14 +23,14 @@ The browser UI calls `/agent-api/*` (Apache routes in `deploy/apache-agent-runti
 
 ## Collection agent
 
-| Stage | UI label | Purpose |
+| Step | Purpose |
 |-------|----------|---------|
-| 1 | Screen | LLM abstract screening |
-| 2 | Full text | OA fulltext fetch |
-| 3 | Metadata | Experimental information extraction |
-| 4 | Supplementary | Scout / manual table upload |
-| 5 | Quant table | Parse to qratio schema |
-| 6 | MS URLs | PRIDE / iProX / jPOST / CPTAC download links |
+| 1 | LLM abstract screening |
+| 2 | OA fulltext fetch |
+| 3 | Experimental information extraction |
+| 4 | Scout / manual table upload |
+| 5 | Parse to qratio schema |
+| 6 | PRIDE / iProX / jPOST / CPTAC download links |
 
 Literature **collection** (PDF / PMID ingestion) is a separate backend pipeline with six steps: literature screening, full-text retrieval, metadata extraction, supplementary data identification, quantitative table parsing, and raw MS data acquisition.
 
