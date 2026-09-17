@@ -4,7 +4,6 @@ import {
   emptyCallKey,
   followableEntitiesFromPayload,
   formatToolObservation,
-  hasSubstantialEvidence,
 } from "../src/agent/observation.js";
 
 const emptyKey = emptyCallKey("get_upstream_enzymes", { query: "AKT1 S473", gene: "AKT1", position: 473 });
@@ -50,9 +49,5 @@ const emptyObs = formatToolObservation("search_ptm_sites", {
   error_kind: "empty_result",
 });
 assert.match(emptyObs, /\[empty_result\]/);
-
-assert.equal(hasSubstantialEvidence({ dbRowCount: 0, literatureCount: 0 }), false);
-assert.equal(hasSubstantialEvidence({ dbRowCount: 3, literatureCount: 0 }), true);
-assert.equal(hasSubstantialEvidence({ dbRowCount: 0, literatureCount: 1 }), true);
 
 console.log("observation tests passed");

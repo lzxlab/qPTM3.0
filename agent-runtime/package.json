@@ -9,7 +9,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/classify.test.ts && tsx tests/language.test.ts && tsx tests/literature.test.ts && tsx tests/mcp-intent.test.ts && tsx tests/router.test.ts && tsx tests/retriever.test.ts && tsx tests/observation.test.ts && tsx tests/react-entry.test.ts && tsx tests/compose-answer.test.ts && tsx tests/dr-tool-result.test.ts && tsx tests/dr-supervisor.test.ts && tsx tests/sse.test.ts && tsx tests/conversations-messages.test.ts && tsx tests/reasoning.test.ts && tsx tests/workflow-trace.test.ts"
+    "test": "tsx tests/classify.test.ts && tsx tests/language.test.ts && tsx tests/literature.test.ts && tsx tests/mcp-intent.test.ts && tsx tests/retriever.test.ts && tsx tests/observation.test.ts && tsx tests/react-entry.test.ts && tsx tests/skills-loader.test.ts && tsx tests/sse.test.ts && tsx tests/conversations-messages.test.ts && tsx tests/reasoning.test.ts && tsx tests/workflow-trace.test.ts"
   },
   "engines": {
     "node": ">=22.19.0"

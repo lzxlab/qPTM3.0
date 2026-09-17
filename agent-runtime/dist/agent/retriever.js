@@ -88,14 +88,6 @@ export function retrieveIntentToolsDeep(question, memory) {
         all.add("get_ppi_pathways");
     return [...all].slice(0, 6);
 }
-/** @deprecated Use retrieveIntentTools */
-export function retrieveTools(question, memory, topK = 6) {
-    return retrieveIntentTools(question, memory, topK);
-}
-/** @deprecated Use retrieveIntentToolsDeep */
-export function retrieveToolsDeep(question, memory) {
-    return retrieveIntentToolsDeep(question, memory);
-}
 function formatCatalogForPrompt(catalog) {
     return catalog
         .map((t, i) => `${i}. ${t.name}: ${t.description || ""}`.trim())

@@ -35,25 +35,10 @@ export declare class ArtifactStore {
     add(kind: ArtifactKind, query: string, summary: string, extra?: Partial<Artifact>): Artifact;
     list(): Artifact[];
     get(id: string): Artifact | undefined;
-    findLiterature(): Artifact[];
-    findDbResults(): Artifact[];
-    findWebSearch(): Artifact[];
-    /** Kinase / gene-like names from compact DB rows for BFS→DFS frontier. */
-    frontierEntities(max?: number, exclude?: string[]): string[];
-    hasLiteratureQuery(q: string): boolean;
     catalogForPrompt(max?: number, opts?: {
         skipEmpty?: boolean;
     }): string;
-    /** Full compact rows for listing / synthesis — not the 200-char catalog. */
-    rowsForPrompt(maxChars?: number): string;
-    /** Compact briefing for the supervisor (counts + preview names). */
-    priorEvidenceForSupervisor(maxChars?: number): string;
-    dbRowCount(tool?: string): number;
     load(list: Artifact[]): void;
     toJSON(): Artifact[];
     clear(): void;
-    shouldSkipLiteratureSearch(message: string): boolean;
-    getLiteratureContext(): string;
-    /** Secondary web snippets for DR synthesis — smaller budget than DB/literature. */
-    getWebSearchContext(maxChars?: number): string;
 }

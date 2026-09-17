@@ -1,5 +1,4 @@
 import { getLlm } from "../llm/client.js";
-import { detectLang } from "./gate.js";
 /** Reject assistant-to-user clarification / meta prompts — chips must be user-askable. */
 function looksLikeAgentAskingUser(text) {
     return /^(您|你|请问|能否|可否|是否希望|您是否|你是否|您提到|你提到|请确认|请补充)/.test(text)
@@ -8,16 +7,7 @@ function looksLikeAgentAskingUser(text) {
         || /\b(would you like me|do you want me|shall I|did you mean)\b/i.test(text);
 }
 /** Concept / refuse / greeting — chips that land on concrete PTM site questions. */
-export function ptmSteerFollowUps(lang = "en") {
-    if (lang === "zh") {
-        return [
-            { text: "哪些激酶磷酸化 AKT1 S473？", intent: "qa" },
-            { text: "TP53 S15 在 DNA 损伤后如何被磷酸化？", intent: "qa" },
-            { text: "EGFR Y1068 磷酸化与哪些药物有关？", intent: "qa" },
-            { text: "STAT3 Y705 在癌症信号中如何被调控？", intent: "qa" },
-            { text: "MDM2 S166 乙酰化受哪些条件影响？", intent: "qa" },
-        ];
-    }
+export function ptmSteerFollowUps() {
     return [
         { text: "Which kinases phosphorylate AKT1 S473?", intent: "qa" },
         { text: "How is TP53 S15 phosphorylated after DNA damage?", intent: "qa" },
@@ -27,9 +17,8 @@ export function ptmSteerFollowUps(lang = "en") {
     ];
 }
 export async function generateFollowUps(question, answer, memory, artifacts, mode, toolsUsed) {
-    const lang = detectLang(question);
     if (memory.query_mode === "concept")
-        return ptmSteerFollowUps(lang);
+        return ptmSteerFollowUps();
     const artifactCatalog = artifacts.catalogForPrompt(8);
     const toolsLine = toolsUsed.length ? toolsUsed.join(", ") : "none";
     const drRule = mode === "qa"
@@ -59,12 +48,12 @@ Answer excerpt: ${(answer || "").slice(0, 2500)}`;
         });
         const parsed = parseFollowUpJson(content).filter((q) => !looksLikeAgentAskingUser(q.text));
         if (parsed.length >= 3)
-            return normalizeFollowUps(parsed, mode, lang, memory);
+            return normalizeFollowUps(parsed, mode, memory);
     }
     catch {
         /* fallback below */
     }
-    return fallbackFollowUps(mode, lang, memory);
+    return fallbackFollowUps(mode, memory);
 }
 function parseFollowUpJson(raw) {
     let text = raw.trim();
@@ -91,12 +80,12 @@ function parseFollowUpJson(raw) {
         return [];
     }
 }
-function normalizeFollowUps(items, mode, lang, memory) {
+function normalizeFollowUps(items, mode, memory) {
     let out = items.filter((q) => !looksLikeAgentAskingUser(q.text)).slice(0, 5);
     if (mode === "qa") {
         const drCount = out.filter((q) => q.intent === "deep_research").length;
         if (drCount < 2) {
-            const extras = fallbackFollowUps("qa", lang, memory).filter((q) => q.intent === "deep_research");
+            const extras = fallbackFollowUps("qa", memory).filter((q) => q.intent === "deep_research");
             for (const e of extras) {
                 if (out.length >= 5)
                     break;
@@ -106,7 +95,7 @@ function normalizeFollowUps(items, mode, lang, memory) {
         }
     }
     while (out.length < 5) {
-        const fb = fallbackFollowUps(mode, lang, memory);
+        const fb = fallbackFollowUps(mode, memory);
         for (const f of fb) {
             if (!out.some((x) => x.text === f.text) && !looksLikeAgentAskingUser(f.text))
                 out.push(f);
@@ -117,18 +106,8 @@ function normalizeFollowUps(items, mode, lang, memory) {
     }
     return out.slice(0, 5);
 }
-function fallbackFollowUps(mode, lang, memory) {
+function fallbackFollowUps(mode, memory) {
     const site = memory.gene && memory.position ? `${memory.gene} ${memory.position}` : "TP53 S15";
-    if (lang === "zh") {
-        const qa = [
-            { text: `${site} 在哪些实验条件下被修饰？`, intent: "qa" },
-            { text: `哪些激酶可能磷酸化 ${site}？`, intent: "qa" },
-            { text: `对 ${site} 做全面调研（激酶、定量、功能疾病）`, intent: "deep_research" },
-            { text: `${site} 与疾病或药物调控有何关联？`, intent: "qa" },
-            { text: "哪些激酶磷酸化 AKT1 S473？", intent: "qa" },
-        ];
-        return qa;
-    }
     const qa = [
         { text: `Under which conditions is ${site} modified?`, intent: "qa" },
         { text: `Which kinases may phosphorylate ${site}?`, intent: "qa" },

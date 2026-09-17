@@ -87,6 +87,3 @@ export function formatToolObservation(tool, result, payload, extraEntities = [],
     ].filter(Boolean);
     return parts.join("\n").slice(0, 2500);
 }
-export function hasSubstantialEvidence(opts) {
-    return opts.dbRowCount > 0 || opts.literatureCount > 0;
-}

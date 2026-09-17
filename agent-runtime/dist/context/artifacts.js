@@ -45,9 +45,6 @@ export function compactDbPayload(result) {
         }),
     };
 }
-function blockRowCount(block) {
-    return block.shown || block.rows.length || 0;
-}
 export class ArtifactStore {
     artifacts = [];
     counter = 0;
@@ -69,48 +66,6 @@ export class ArtifactStore {
     }
     get(id) {
         return this.artifacts.find((a) => a.id === id);
-    }
-    findLiterature() {
-        return this.artifacts.filter((a) => a.kind === "literature_search" || a.kind === "paper");
-    }
-    findDbResults() {
-        return this.artifacts.filter((a) => a.kind === "db_result");
-    }
-    findWebSearch() {
-        return this.artifacts.filter((a) => a.kind === "web_search");
-    }
-    /** Kinase / gene-like names from compact DB rows for BFS→DFS frontier. */
-    frontierEntities(max = 12, exclude = []) {
-        const skip = new Set(exclude.map((e) => e.toLowerCase()).filter(Boolean));
-        const seen = new Set();
-        const names = [];
-        for (const a of this.findDbResults()) {
-            for (const b of a.payload?.blocks || []) {
-                for (const r of b.rows) {
-                    const n = String(r.kinase_gene || r.kinase || r.KINASE || r.gene || r.name || "").trim();
-                    const key = n.toLowerCase();
-                    if (!n || n.length < 2 || n.length > 14 || skip.has(key) || seen.has(key))
-                        continue;
-                    seen.add(key);
-                    names.push(n);
-                    if (names.length >= max)
-                        return names;
-                }
-            }
-        }
-        return names;
-    }
-    hasLiteratureQuery(q) {
-        const n = q
-            .toLowerCase()
-            .replace(/\s+/g, " ")
-            .trim();
-        if (!n)
-            return false;
-        return this.findLiterature().some((a) => a.query
-            .toLowerCase()
-            .replace(/\s+/g, " ")
-            .trim() === n);
     }
     catalogForPrompt(max = 20, opts = {}) {
         let items = this.artifacts.slice(-max);
@@ -135,59 +90,6 @@ export class ArtifactStore {
         })
             .join("\n");
     }
-    /** Full compact rows for listing / synthesis — not the 200-char catalog. */
-    rowsForPrompt(maxChars = 12000) {
-        const dbs = this.findDbResults().filter((a) => a.payload?.blocks?.length);
-        if (!dbs.length)
-            return "";
-        const parts = [];
-        for (const a of dbs) {
-            const intent = a.payload?.intent || a.tool || a.query;
-            parts.push(`### ${intent}`);
-            for (const b of a.payload?.blocks || []) {
-                const flag = b.truncated ? ` truncated, showing ${b.shown} of ${b.total}` : ` ${b.shown} of ${b.total}`;
-                parts.push(`- ${b.source || b.tool || "source"} (${b.evidence_level || "unknown"}${flag})`);
-                for (const row of b.rows) {
-                    const cells = Object.entries(row)
-                        .map(([k, v]) => `${k}=${v}`)
-                        .join(" | ");
-                    if (cells)
-                        parts.push(`  - ${cells}`);
-                }
-            }
-        }
-        return parts.join("\n").slice(0, maxChars);
-    }
-    /** Compact briefing for the supervisor (counts + preview names). */
-    priorEvidenceForSupervisor(maxChars = 4000) {
-        const dbs = this.findDbResults();
-        if (!dbs.length)
-            return "(no prior database results)";
-        const lines = [];
-        for (const a of dbs) {
-            const tool = a.tool || a.query;
-            const blocks = a.payload?.blocks || [];
-            if (!blocks.length) {
-                lines.push(`[${tool}] ${a.summary.slice(0, 240)}`);
-                continue;
-            }
-            for (const b of blocks) {
-                const names = b.rows
-                    .map((r) => String(r.kinase_gene || r.kinase || r.KINASE || r.gene || r.name || "").trim())
-                    .filter(Boolean)
-                    .slice(0, 12);
-                const more = b.truncated ? `; truncated ${b.shown}/${b.total} — re-call with higher limit or sources to expand` : "";
-                const preview = names.length ? `; e.g. ${names.join(", ")}` : "";
-                lines.push(`[${tool}/${b.source || b.tool || "src"}] ${b.shown}/${b.total} rows${preview}${more}`);
-            }
-        }
-        return lines.join("\n").slice(0, maxChars);
-    }
-    dbRowCount(tool) {
-        return this.findDbResults()
-            .filter((a) => !tool || a.tool === tool || a.query === tool)
-            .reduce((sum, a) => sum + (a.payload?.blocks || []).reduce((s, b) => s + blockRowCount(b), 0), 0);
-    }
     load(list) {
         this.artifacts = Array.isArray(list) ? list.map((a) => ({ ...a })) : [];
         this.counter = this.artifacts.reduce((max, a) => {
@@ -201,30 +103,5 @@ export class ArtifactStore {
     clear() {
         this.artifacts = [];
         this.counter = 0;
-    }
-    shouldSkipLiteratureSearch(message) {
-        const refers = /这些文献|上述文献|刚才的文献|those papers|these papers|the papers above|summarize.*literature|文献讲了|上面.*文献/i.test(message);
-        if (!refers)
-            return false;
-        return this.findLiterature().length > 0;
-    }
-    getLiteratureContext() {
-        const lit = this.findLiterature();
-        if (!lit.length)
-            return "";
-        return lit
-            .map((a) => `${a.query}\n${a.summary}`)
-            .join("\n---\n")
-            .slice(0, 18000);
-    }
-    /** Secondary web snippets for DR synthesis — smaller budget than DB/literature. */
-    getWebSearchContext(maxChars = 2500) {
-        const web = this.findWebSearch();
-        if (!web.length)
-            return "";
-        const body = web
-            .map((a) => `Query: ${a.query}\n${a.summary}`)
-            .join("\n---\n");
-        return `### Web search (secondary, low weight)\n${body}`.slice(0, maxChars);
     }
 }

@@ -35,7 +35,7 @@ from app.sources.catalog import get_catalog  # noqa: E402
 from app.tools.metadata import TOOL_DATABASES  # noqa: E402
 from app.tools.register_all import register_all_tools  # noqa: E402
 from app.tools.registry import registry  # noqa: E402
-from app.workflow.planner import infer_tool_arguments  # noqa: E402
+from app.mcp.tool_args import infer_tool_arguments  # noqa: E402
 from mcp_tools import _classify_result, _invoke_one  # noqa: E402
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")

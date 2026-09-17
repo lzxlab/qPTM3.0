@@ -99,10 +99,3 @@ export function formatToolObservation(
   ].filter(Boolean);
   return parts.join("\n").slice(0, 2500);
 }
-
-export function hasSubstantialEvidence(opts: {
-  dbRowCount: number;
-  literatureCount: number;
-}): boolean {
-  return opts.dbRowCount > 0 || opts.literatureCount > 0;
-}

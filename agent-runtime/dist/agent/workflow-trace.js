@@ -1,5 +1,5 @@
 const MAX_EVENTS = 120;
-const MAX_THOUGHT = 16000;
+const MAX_THOUGHT = 256 * 1024;
 const MAX_DETAIL = 8000;
 export function emptyWorkflowState() {
     return {
@@ -13,7 +13,7 @@ export function emptyWorkflowState() {
         events: [],
         decision: null,
         supervisor: [],
-        synthesis: { evidence: null, thought: "" },
+        synthesis: { thought: "" },
     };
 }
 function clip(text, max = MAX_DETAIL) {
@@ -93,69 +93,6 @@ export function applyAgentEvent(state, event) {
         }
         return;
     }
-    if (t === "route_decision") {
-        state.decision = {
-            handler: event.handler,
-            query_mode: event.query_mode,
-            specific_enough: event.specific_enough,
-            may_clarify: event.may_clarify,
-            entities: event.entities || {},
-        };
-        logEvent(state, "decision", `Route: ${String(event.handler || "")}`);
-        return;
-    }
-    if (t === "supervisor_decision") {
-        state.supervisor.push({
-            round: event.round,
-            actions: event.actions || [],
-            rationale: clip(event.rationale),
-            gap_score: event.gap_score,
-            outcomes_summary: clip(event.outcomes_summary, 1200),
-            finish_accepted: event.finish_accepted,
-            ts: Date.now(),
-        });
-        const names = Array.isArray(event.actions)
-            ? event.actions.map((a) => a.name).filter(Boolean).join(", ")
-            : "";
-        logEvent(state, "supervisor", names || "Supervisor decision", { round: event.round });
-        return;
-    }
-    if (t === "plan_created") {
-        const plan = (event.plan || event);
-        const summary = String(plan.intent_summary || plan.summary || "");
-        const steps = Array.isArray(plan.steps) ? plan.steps : [];
-        state.goal = summary || state.goal;
-        state.status = "running";
-        state.plan = {
-            summary,
-            steps: steps.map((s, i) => {
-                const row = (s || {});
-                return {
-                    step: Number(row.step) || i + 1,
-                    title: String(row.title || row.description || `Step ${i + 1}`),
-                    description: String(row.description || row.rationale || ""),
-                    rationale: String(row.rationale || ""),
-                    database: String(row.database || row.entity || ""),
-                    tools: Array.isArray(row.tools) ? row.tools.map((x) => String(x)) : [],
-                    status: String(row.status || "pending"),
-                };
-            }),
-        };
-        logEvent(state, "plan", summary || "Research plan created");
-        return;
-    }
-    if (t === "step_started" || t === "step_completed") {
-        const stepNo = Number(event.step);
-        const row = state.plan.steps.find((s) => s.step === stepNo);
-        const status = t === "step_started" ? "running" : String(event.status || "done");
-        if (row) {
-            row.status = status;
-            if (event.title)
-                row.title = String(event.title);
-        }
-        logEvent(state, "plan", `${t === "step_started" ? "Start" : "Done"} step ${Number.isFinite(stepNo) ? stepNo : ""}`.trim());
-        return;
-    }
     if (t === "tool_call") {
         state.tools.push({
             tool_name: String(event.tool_name || "tool"),
@@ -198,17 +135,12 @@ export function applyAgentEvent(state, event) {
         logEvent(state, "literature", `Literature #${event.round}: ${event.query}`);
         return;
     }
-    if (t === "synthesis_started") {
-        state.synthesis.evidence = argsRecord(event.evidence || event);
-        logEvent(state, "synthesis", "Writing from collected evidence");
-        return;
-    }
     if (t === "report_thought") {
         const chunk = String(event.content || "");
         if (!chunk)
             return;
         const next = `${state.synthesis.thought}${chunk}`;
-        state.synthesis.thought = next.length > MAX_THOUGHT ? next.slice(-MAX_THOUGHT) : next;
+        state.synthesis.thought = next.length > MAX_THOUGHT ? next.slice(0, MAX_THOUGHT) : next;
     }
 }
 export function workflowHasData(state) {
@@ -222,8 +154,7 @@ export function workflowHasData(state) {
         state.events.length ||
         state.decision ||
         state.supervisor.length ||
-        state.synthesis.thought ||
-        state.synthesis.evidence);
+        state.synthesis.thought);
 }
 /** Invariant helper: only `text` events belong in the saved/shown answer. */
 export function appendAnswerText(fullAnswer, event) {

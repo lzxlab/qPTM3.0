@@ -17,7 +17,7 @@ export function isEmptyToolResult(result: {
   return result.error_kind === "empty_result";
 }
 
-export function isCallBug(result: { error_kind?: string | null }): boolean {
+function isCallBug(result: { error_kind?: string | null }): boolean {
   return result.error_kind === "call_bug";
 }
 
@@ -49,45 +49,4 @@ export function toStepOutcome(tool: string, result: QptmToolResult): StepOutcome
     error_kind: result.error_kind,
     summary: (result.summary || "").slice(0, 400),
   };
-}
-
-export function gapScore(outcomes: StepOutcome[]): number {
-  if (!outcomes.length) return 1;
-  const bad = outcomes.filter((o) => o.empty || o.callBug || o.predictedOnly).length;
-  return bad / outcomes.length;
-}
-
-export function wantsIntentExpand(args?: Record<string, unknown> | null): boolean {
-  if (!args) return false;
-  if (args.sources != null && String(args.sources).trim()) return true;
-  const limit = Number(args.limit);
-  return Number.isFinite(limit) && limit > 15;
-}
-
-export function mayRecallIntent(
-  tool: string,
-  emptyTools: ReadonlySet<string>,
-  succeededTools: ReadonlySet<string>,
-  opts?: { expand?: boolean },
-): boolean {
-  if (emptyTools.has(tool)) return false;
-  if (succeededTools.has(tool) && !opts?.expand) return false;
-  return true;
-}
-
-export function outcomesSummary(outcomes: StepOutcome[]): string {
-  if (!outcomes.length) return "(no tool results yet)";
-  return outcomes
-    .map((o) => {
-      const tags = [
-        o.empty ? "empty_result" : "",
-        o.callBug ? "call_bug" : "",
-        o.predictedOnly ? "predicted_only" : "",
-        o.success ? "ok" : "",
-      ]
-        .filter(Boolean)
-        .join(",");
-      return `[${o.tool}|${tags}] ${o.summary}`;
-    })
-    .join("\n");
 }

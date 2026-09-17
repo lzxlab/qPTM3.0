@@ -26,15 +26,9 @@ Use this map to **choose databases** and **judge evidence gaps for the next tool
 - Do **not** re-call an intent that returned `empty_result`.
 - Do **not** re-call an intent that already succeeded with non-predicted rows — unless expanding truncated hits with a higher `limit` or a `sources` filter (e.g. `qptm`).
 
-## Breadth vs depth (literature)
+## Literature
 
-**Breadth (BFS layer 2):** after parallel DB intents, shallow literature per asked dimension using entity names from those rows (titles/PMIDs only — no OA full text).
-
-**Depth (DFS):** `focus` must match one gap dimension: kinase, condition, function, disease, drug, localization, llps.
-- Query examples: `{GENE} S{pos} TBK1 kinase phosphorylation` (regulation); `{GENE} S{pos} DNA damage treatment` (conditions).
-- Never use vague `GENE phosphorylation review` unless the user asked for a review.
-- Follow kinase names from database blocks in round 1; a second round only for **new** entities.
-- Depth may query the matching DB intent first if it has not already run.
+If the user asked for mechanism or papers and databases did not cover it, call `search_literature` with gene + site + a specific query. Never generic `GENE phosphorylation review` unless the user asked for a review.
 
 ## Rules
 

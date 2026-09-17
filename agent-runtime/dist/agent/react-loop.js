@@ -1,20 +1,19 @@
 import { cfg } from "../config.js";
 import { compactDbPayload } from "../context/artifacts.js";
-import { addFinding } from "../context/memory.js";
+import { addFinding, mergeEntities, sameGene } from "../context/memory.js";
 import { callQptmTool, isWebSearchFailure, listMcpTools, webSearch, } from "../mcp/hub.js";
-import { loadSkills, skillsForMode } from "../skills/loader.js";
+import { loadSkills } from "../skills/loader.js";
 import { getLlm } from "../llm/client.js";
 import { mergeCitation } from "./citations.js";
-import { ANSWER_LANGUAGE_RULE, detectLang } from "./gate.js";
+import { ANSWER_LANGUAGE_RULE } from "./language.js";
 import { retrieveIntentToolsLlm } from "./retriever.js";
-import { applyResolvedIdentity } from "./resolve-target.js";
-import { containsProtocolMarkup, sanitizeUserVisibleText, stripProtocolMarkup, } from "./protocol.js";
+import { containsProtocolMarkup, sanitizeUserVisibleText, stripProtocolMarkup } from "./protocol.js";
 import { AgentPhase, setPhase } from "./phase.js";
-import { buildIntentArgs } from "./dr-research-loop.js";
+import { buildIntentArgs } from "./intent-args.js";
 import { isEmptyToolResult } from "./tool-result.js";
 import { callSearchLiteratureDeep } from "./literature-fetch.js";
 import { extractPmids, papersFromToolResult } from "./literature.js";
-import { emptyCallKey, formatToolObservation, followableEntitiesFromPayload, } from "./observation.js";
+import { emptyCallKey, formatToolObservation, followableEntitiesFromPayload } from "./observation.js";
 const WEB_SEARCH_TOOL = {
     type: "function",
     function: {
@@ -27,6 +26,43 @@ const WEB_SEARCH_TOOL = {
         },
     },
 };
+function isResidueToken(token) {
+    return /^[STYKR]\d{2,5}$/i.test(token.trim());
+}
+function applyResolvedIdentity(memory, result) {
+    const blob = result.resolved && typeof result.resolved === "object"
+        ? result.resolved
+        : result.data && typeof result.data === "object"
+            ? result.data
+            : null;
+    if (!blob)
+        return;
+    const gene = blob.gene != null ? String(blob.gene).trim() : "";
+    const uniprot = blob.uniprot_ac != null ? String(blob.uniprot_ac).trim().toUpperCase() : "";
+    const positionRaw = blob.position;
+    const position = typeof positionRaw === "number"
+        ? positionRaw
+        : positionRaw != null && String(positionRaw).trim()
+            ? Number(positionRaw)
+            : NaN;
+    const ptm = blob.ptm_type != null ? String(blob.ptm_type) : "";
+    if (gene && memory.gene && !isResidueToken(memory.gene) && !sameGene(memory.gene, gene)) {
+        return;
+    }
+    const patch = {};
+    if (gene && !isResidueToken(gene)) {
+        if (!memory.gene || isResidueToken(memory.gene) || uniprot) {
+            patch.gene = gene;
+        }
+    }
+    if (uniprot)
+        patch.uniprot_ac = uniprot;
+    if (Number.isFinite(position) && position > 0)
+        patch.position = position;
+    if (ptm)
+        patch.ptm_type = ptm;
+    mergeEntities(memory, patch);
+}
 function resultRowCount(result, empty) {
     if (empty)
         return 0;
@@ -76,14 +112,24 @@ Rules:
 9. Literature queries must be specific (gene + site + mechanism). Never search generic "PTM site". search_literature already returns top abstracts; request fulltext_pmids only for a few key papers.
 10. web_search is optional and specific — not a generic PTM search.
 11. Never emit protocol markup, tool XML, or DSML. User-visible text is natural language only.
+
+Each turn do exactly one thing: call tools, or write the user-visible answer. Not both.
+If the intents this question needs have not run yet, or returned nothing usable, only call tools.
+When you stop calling tools: answer the question; use observations as support; no retrieval report, no internal tool names.
 ${ANSWER_LANGUAGE_RULE}`;
+}
+function visibleAnswer(content) {
+    if (!content)
+        return "";
+    if (!containsProtocolMarkup(content))
+        return content;
+    return sanitizeUserVisibleText(content);
 }
 export async function* runReactLoop(userMessage, history, session) {
     const memory = session.memory;
     const artifacts = session.artifacts;
-    const lang = detectLang(userMessage);
     const citations = [...session.citations];
-    const skills = loadSkills(skillsForMode("react", userMessage));
+    const skills = loadSkills();
     const toolsUsed = [];
     const emptyKeys = new Set();
     const usedExact = new Set();
@@ -98,7 +144,7 @@ export async function* runReactLoop(userMessage, history, session) {
         detail: bound.length ? bound.join(", ") : "TOOLS: []",
     };
     const messages = [
-        { role: "system", content: `${reactSystemPrompt()}\n\n${skills.slice(0, 5000)}` },
+        { role: "system", content: `${reactSystemPrompt()}\n\n${skills}` },
         ...history.slice(-8).map((h) => ({
             role: h.role,
             content: h.content,
@@ -111,27 +157,28 @@ Question: ${userMessage}`,
         },
     ];
     const llm = getLlm();
-    let draftAnswer = "";
+    let answer = "";
+    async function completeRound(tools) {
+        return llm.chatCompletion(messages, {
+            tools: tools?.length ? tools : undefined,
+            maxTokens: 8192,
+            temperature: 0.3,
+        });
+    }
     for (let round = 0; round < cfg.reactMaxRounds; round++) {
         const tools = bound.length ? await llmToolsFor(bound) : [];
         if (!usedExact.has("web_search"))
             tools.push(WEB_SEARCH_TOOL);
-        const { content, toolCalls, reasoning } = await llm.chatCompletion(messages, {
-            tools: tools.length ? tools : undefined,
-            maxTokens: 4096,
-            temperature: 0.3,
-        });
+        const { content, toolCalls, reasoning } = await completeRound(tools);
         const thought = stripProtocolMarkup(reasoning || (toolCalls.length ? content || "" : "")).text.trim();
         if (thought) {
             yield {
                 type: "phase_update",
                 phase: AgentPhase.database,
-                label: toolCalls.length ? "Choosing next lookup" : "Writing answer",
+                label: toolCalls.length ? "Choosing next lookup" : "Thinking",
                 detail: thought,
             };
-            if (!toolCalls.length) {
-                yield { type: "report_thought", content: thought };
-            }
+            yield { type: "report_thought", content: thought };
         }
         const allowed = new Set([...bound, "web_search"]);
         const calls = toolCalls.filter((tc) => allowed.has(tc.name));
@@ -176,13 +223,12 @@ Question: ${userMessage}`,
                             data: null,
                             error_kind: "empty_result",
                         },
-                        skipped: true,
                     };
                 }
                 const result = tc.name === "search_literature"
                     ? await callSearchLiteratureDeep(args)
                     : await callQptmTool(tc.name, args);
-                return { tc, kind: "mcp", args, result, skipped: false };
+                return { tc, kind: "mcp", args, result };
             }));
             for (const item of executed) {
                 if (item.kind === "web") {
@@ -274,19 +320,40 @@ Question: ${userMessage}`,
             }
             continue;
         }
-        if (content && !containsProtocolMarkup(content)) {
-            draftAnswer = content;
-            break;
+        answer = visibleAnswer(content);
+        if (answer) {
+            yield setPhase(session, AgentPhase.synthesis, "Thinking");
+            yield { type: "text", content: answer };
         }
-        if (content) {
-            draftAnswer = sanitizeUserVisibleText(content, lang);
-            break;
+        break;
+    }
+    if (!answer.trim()) {
+        messages.push({
+            role: "user",
+            content: "Do not call tools. Write the user-visible answer now.",
+        });
+        const forced = await llm.chatCompletion(messages, {
+            tools: [],
+            maxTokens: 8192,
+            temperature: 0.3,
+        });
+        const thought = stripProtocolMarkup(forced.reasoning || "").text.trim();
+        if (thought)
+            yield { type: "report_thought", content: thought };
+        answer = visibleAnswer(forced.content);
+        if (answer) {
+            yield setPhase(session, AgentPhase.synthesis, "Thinking");
+            yield { type: "text", content: answer };
+        }
+        else {
+            answer = "Generation failed. Please retry.";
+            yield { type: "text", content: answer };
         }
     }
     session.citations = citations;
     yield {
         type: "_react_finished",
-        answer: draftAnswer,
+        answer,
         toolsUsed,
         citations,
     };

@@ -39,7 +39,6 @@ export interface WorkflowStateSnapshot {
     decision: Record<string, unknown> | null;
     supervisor: Array<Record<string, unknown>>;
     synthesis: {
-        evidence: Record<string, unknown> | null;
         thought: string;
     };
 }

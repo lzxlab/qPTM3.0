@@ -98,16 +98,6 @@ export function retrieveIntentToolsDeep(
   return [...all].slice(0, 6) as McpIntentTool[];
 }
 
-/** @deprecated Use retrieveIntentTools */
-export function retrieveTools(question: string, memory: InvestigationMemory, topK = 6): string[] {
-  return retrieveIntentTools(question, memory, topK);
-}
-
-/** @deprecated Use retrieveIntentToolsDeep */
-export function retrieveToolsDeep(question: string, memory: InvestigationMemory): string[] {
-  return retrieveIntentToolsDeep(question, memory);
-}
-
 function formatCatalogForPrompt(catalog: Array<{ name: string; description?: string }>): string {
   return catalog
     .map((t, i) => `${i}. ${t.name}: ${t.description || ""}`.trim())

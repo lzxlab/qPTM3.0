@@ -10,11 +10,6 @@ export interface RunAgentOptions {
         content: string;
     }>;
     mode: AgentMode;
-    clarificationResponse?: {
-        skip?: boolean;
-        selections?: Record<string, string>;
-        free_text?: string;
-    } | null;
 }
 export declare function runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEvent>;
 export declare function snapshotSession(sessionId: string, conversationId?: string): PersistedSession | null;

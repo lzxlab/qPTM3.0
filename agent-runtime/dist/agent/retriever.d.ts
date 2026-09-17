@@ -6,10 +6,6 @@ export type McpIntentTool = (typeof MCP_INTENT_TOOLS)[number];
 /** Rank MCP intent tools for a research question (replaces legacy registry tool names). */
 export declare function retrieveIntentTools(question: string, memory: InvestigationMemory, topK?: number): McpIntentTool[];
 export declare function retrieveIntentToolsDeep(question: string, memory: InvestigationMemory): McpIntentTool[];
-/** @deprecated Use retrieveIntentTools */
-export declare function retrieveTools(question: string, memory: InvestigationMemory, topK?: number): string[];
-/** @deprecated Use retrieveIntentToolsDeep */
-export declare function retrieveToolsDeep(question: string, memory: InvestigationMemory): string[];
 /**
  * Parse `TOOLS: [0, 2, 5]` from an LLM retriever reply.
  * Empty list is valid (greeting / no tools). Missing or unparseable → null (fallback).

@@ -6,7 +6,7 @@ from app.tools.qptm_tools import (
     _qptm_site_conditions,
     filter_site_conditions,
 )
-from app.workflow.planner import infer_tool_arguments
+from app.mcp.tool_args import infer_tool_arguments, parse_query_entities
 
 MIXED = [
     {
@@ -83,3 +83,23 @@ def test_infer_tool_arguments_passes_contrast_type():
     assert args["contrast_type"] == "disease"
     assert args["uniprot_ac"] == "P46937"
     assert args["position"] == 127
+
+
+def test_parse_akt1_s473_and_infer_registry_args():
+    entities = parse_query_entities("Which kinases phosphorylate AKT1 S473?")
+    assert entities["gene"] == "AKT1"
+    assert entities["position"] == 473
+
+    kinase_args = infer_tool_arguments(
+        "qptm_kinases",
+        {**entities, "uniprot_ac": "P31749"},
+    )
+    assert kinase_args == {"uniprot_ac": "P31749", "position": 473}
+
+    condition_args = infer_tool_arguments(
+        "qptm_site_conditions",
+        {**entities, "uniprot_ac": "P31749"},
+    )
+    assert condition_args["uniprot_ac"] == "P31749"
+    assert condition_args["position"] == 473
+    assert condition_args["ptm_type"] == entities["ptm_type"]

@@ -43,8 +43,8 @@ export function stripProtocolMarkup(text: string): { text: string; leaked: boole
   return { text: s, leaked };
 }
 
-export function failedGenerationMessage(lang: "zh" | "en" = "en"): string {
-  return lang === "zh" ? "生成失败，请重试。" : "Generation failed. Please retry.";
+export function failedGenerationMessage(): string {
+  return "Generation failed. Please retry.";
 }
 
 function stripResolvedBanner(text: string): string {
@@ -60,11 +60,11 @@ function isSubstantiveAnswer(text: string): boolean {
 }
 
 /** If stripping leaves nothing readable, replace with a retry prompt. */
-export function sanitizeUserVisibleText(text: string, lang: "zh" | "en" = "en"): string {
+export function sanitizeUserVisibleText(text: string): string {
   const { text: cleaned, leaked } = stripProtocolMarkup(text);
   const visible = stripResolvedBanner(cleaned).replace(/^\n+/, "");
   if (leaked && !isSubstantiveAnswer(visible)) {
-    return failedGenerationMessage(lang);
+    return failedGenerationMessage();
   }
   return visible;
 }

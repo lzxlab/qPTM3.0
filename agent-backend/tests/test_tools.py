@@ -18,15 +18,6 @@ from app.tools.uniprot_tools import register_uniprot_tools
 from app.tools.psp_tools import register_psp_tools
 from app.tools.dbptm_tools import register_dbptm_tools
 from app.tools.stability_tools import register_stability_tools
-from app.workflow.state import ConversationState, SessionManager
-from app.workflow.stages import (
-    detect_stage_from_message,
-    advance_stage,
-    get_stage_suggestion,
-    get_stage_label,
-    get_stage_order,
-)
-from app.models.schemas import WorkflowStage
 
 
 def test_tool_registration():
@@ -246,69 +237,6 @@ def test_qptm_tools_error_handling():
     print()
 
 
-def test_workflow_state_machine():
-    """Test workflow state machine transitions."""
-    print("=== Test: Workflow State Machine ===")
-
-    # Test stage detection
-    test_cases = [
-        ("Under what conditions is TP53 S15 phosphorylated?", WorkflowStage.conditions),
-        ("Which kinase phosphorylates TP53 S15?", WorkflowStage.kinase),
-        ("Where is RFTN1 localized in the cell?", WorkflowStage.where),
-        ("What is the functional effect of phosphorylating TP53 S15?", WorkflowStage.function),
-        ("TP53 S15的条件是什么？", WorkflowStage.conditions),  # Chinese
-        ("哪个激酶磷酸化TP53 S15？", WorkflowStage.kinase),  # Chinese
-    ]
-    for msg, expected in test_cases:
-        detected = detect_stage_from_message(msg)
-        assert detected == expected, f"Expected {expected}, got {detected} for '{msg}'"
-    print(f"  PASS: Stage detection ({len(test_cases)} cases, including Chinese)")
-
-    # Test stage advancement: WHO → WHEN → WHERE → WHY → synthesis
-    sm = SessionManager()
-    state = sm.get_or_create("test-wf")
-    state.set_target(gene="TP53", uniprot_ac="P04637", position=15, ptm_type="phosphorylation")
-    state.advance_to(WorkflowStage.kinase)
-    state.add_kinases([{"kinase_gene": "ATM", "evidence_type": "experimental"}])
-
-    next_stage = advance_stage(state)
-    assert next_stage == WorkflowStage.conditions, f"Should advance to WHEN, got {next_stage}"
-
-    state.add_conditions([{"condition_name": "etoposide"}], total=3)
-    next_stage = advance_stage(state)
-    assert next_stage == WorkflowStage.where, f"Should advance to WHERE, got {next_stage}"
-
-    state.add_localization([{"source": "COMPARTMENTS", "term": "nucleus"}])
-    next_stage = advance_stage(state)
-    assert next_stage == WorkflowStage.function, f"Should advance to WHY, got {next_stage}"
-
-    state.add_functions([{"source": "UniProt", "function": "transcription factor"}])
-    next_stage = advance_stage(state)
-    assert next_stage == WorkflowStage.synthesis, f"Should advance to synthesis, got {next_stage}"
-
-    print(f"  PASS: Stage advancement (idle → WHO → WHEN → WHERE → WHY → synthesis)")
-
-    # Test stage suggestions
-    state2 = sm.get_or_create("test-sugg")
-    sugg = get_stage_suggestion(state2)
-    assert "four-stage" in sugg["suggestion"], "Idle suggestion should mention four stages"
-    print(f"  PASS: Stage suggestions generated correctly")
-
-    # Test state serialization
-    state_dict = state.to_dict()
-    assert state_dict["current_stage"] == "synthesis"
-    assert state_dict["target_gene"] == "TP53"
-    assert state_dict["total_conditions"] == 3
-    print(f"  PASS: State serialization works")
-
-    # Test reset
-    state.reset()
-    assert state.current_stage == WorkflowStage.idle
-    assert state.target_gene is None
-    print(f"  PASS: State reset works")
-    print()
-
-
 def test_unknown_tool():
     """Test that unknown tools return an error."""
     print("=== Test: Unknown Tool Error ===")
@@ -346,7 +274,6 @@ def main():
         test_ptm_stability_not_found,
         test_ptm_stability_htt,
         test_qptm_tools_error_handling,
-        test_workflow_state_machine,
         test_unknown_tool,
         test_invalid_uniprot,
     ]

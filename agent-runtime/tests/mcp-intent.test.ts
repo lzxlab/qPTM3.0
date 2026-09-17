@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
 import {
-  classifyQueryMode,
-} from "../src/agent/gate.js";
-import {
   MCP_INTENT_TOOLS,
   retrieveIntentTools,
   retrieveIntentToolsDeep,
@@ -14,8 +11,6 @@ const memory = { gene: "AKT1", position: 473, uniprot_ac: "P31749", ptm_type: "p
 const kinaseQ = "Which kinases phosphorylate AKT1 S473?";
 const kinaseQZh = "哪些激酶磷酸化 AKT1 S473？";
 const conceptQ = "What is phosphorylation?";
-
-assert.equal(classifyQueryMode(kinaseQ, parseEntities(kinaseQ)), "research");
 
 const kinaseTools = retrieveIntentTools(kinaseQ, memory, 4);
 assert.ok(kinaseTools.includes("get_upstream_enzymes"), `expected kinase intent, got ${kinaseTools.join(",")}`);

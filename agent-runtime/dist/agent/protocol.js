@@ -37,8 +37,8 @@ export function stripProtocolMarkup(text) {
     s = s.replace(/\n{3,}/g, "\n\n").trim();
     return { text: s, leaked };
 }
-export function failedGenerationMessage(lang = "en") {
-    return lang === "zh" ? "生成失败，请重试。" : "Generation failed. Please retry.";
+export function failedGenerationMessage() {
+    return "Generation failed. Please retry.";
 }
 function stripResolvedBanner(text) {
     return text
@@ -51,11 +51,11 @@ function isSubstantiveAnswer(text) {
     return stripped.length >= 24;
 }
 /** If stripping leaves nothing readable, replace with a retry prompt. */
-export function sanitizeUserVisibleText(text, lang = "en") {
+export function sanitizeUserVisibleText(text) {
     const { text: cleaned, leaked } = stripProtocolMarkup(text);
     const visible = stripResolvedBanner(cleaned).replace(/^\n+/, "");
     if (leaked && !isSubstantiveAnswer(visible)) {
-        return failedGenerationMessage(lang);
+        return failedGenerationMessage();
     }
     return visible;
 }

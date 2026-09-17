@@ -1,6 +1,8 @@
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { cfg } from "../config.js";
+
+const ALWAYS = ["biology-qa", "ptm-databases"] as const;
 
 export function loadSkill(name: string): string {
   const path = join(cfg.skillsDir, name, "SKILL.md");
@@ -8,31 +10,11 @@ export function loadSkill(name: string): string {
   return readFileSync(path, "utf8").slice(0, 6000);
 }
 
-export function loadSkills(names: string[]): string {
+export function loadSkills(names: readonly string[] = ALWAYS): string {
   const parts: string[] = [];
   for (const n of names) {
     const text = loadSkill(n);
     if (text) parts.push(`### Skill: ${n}\n${text}`);
   }
   return parts.join("\n\n");
-}
-
-export function listSkillNames(): string[] {
-  if (!existsSync(cfg.skillsDir)) return [];
-  return readdirSync(cfg.skillsDir, { withFileTypes: true })
-    .filter((d) => d.isDirectory())
-    .map((d) => d.name);
-}
-
-export function skillsForMode(mode: "qa" | "deep_research" | "react" | "compose", question: string): string[] {
-  if (mode === "compose") return ["answer-ptm"];
-  const base = ["ptm-databases"];
-  if (mode === "react") {
-    base.unshift("biology-qa", "deep-research-ptm");
-  } else if (mode === "qa") base.unshift("biology-qa");
-  else base.unshift("deep-research-ptm");
-  if (/kinase|激酶|磷酸化/i.test(question)) base.push("kinase-substrate");
-  if (/fold|定量|condition|倍数/i.test(question)) base.push("quantitative-dynamics");
-  if (/disease|疾病|cancer|功能/i.test(question)) base.push("function-disease");
-  return base;
 }

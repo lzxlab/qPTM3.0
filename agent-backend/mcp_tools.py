@@ -14,7 +14,7 @@ from app.sources.uniprot_id import (
     resolve_identity,
 )
 from app.tools.registry import registry
-from app.workflow.planner import infer_tool_arguments, parse_query_entities
+from app.mcp.tool_args import infer_tool_arguments, parse_query_entities
 
 logger = logging.getLogger(__name__)
 

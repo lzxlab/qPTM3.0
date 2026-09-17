@@ -38,13 +38,6 @@ def test_extract_accessions_and_resolve_urls_intent():
     assert extract_accessions("fooPXD005871") == []
 
 
-def test_classify_resolve_urls_intent():
-    from app.agent.gate import classify_query_mode, QUERY_MODE_COLLECTION
-
-    mode = classify_query_mode("帮我获取 PRIDE 数据库中 ID=PXD037009 的质谱下载链接")
-    assert mode == QUERY_MODE_COLLECTION
-
-
 def test_extract_pmid_from_filename():
     assert extract_pmid_from_filename("39732660.pdf") == "39732660"
     assert extract_pmid_from_filename("pmid_39732660_fulltext.pdf") == "39732660"
@@ -54,16 +47,6 @@ def test_extract_pmid_from_filename():
 def test_resolve_pmid_from_upload_only():
     assert resolve_pmid(filenames=["39732660.pdf"]) == "39732660"
     assert resolve_pmid(message="", filenames=["39732660.pdf"]) == "39732660"
-
-
-def test_classify_collection_intent():
-    from app.agent.gate import classify_query_mode, QUERY_MODE_COLLECTION
-
-    mode = classify_query_mode("从 PMID 38101750 抽取 qratio 定量表")
-    assert mode == QUERY_MODE_COLLECTION
-
-    mode_upload = classify_query_mode("hello", upload_filenames=["39732660.pdf"])
-    assert mode_upload == QUERY_MODE_COLLECTION
 
 
 def test_collection_jobs_need_pmid():

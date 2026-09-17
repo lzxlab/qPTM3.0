@@ -12,7 +12,6 @@ from app.mcp.intents import (
     intent_tool_definitions,
     parse_source_filter,
 )
-from app.llm.prompts import SYNTHESIS_PROMPT
 
 
 def test_intent_tool_list_excludes_invoke():
@@ -124,11 +123,6 @@ def test_function_disease_stability_keeps_ptm_stability(monkeypatch):
     )
     assert "ptm_stability" in captured
     assert "qptm_site_conditions" in captured
-
-
-def test_synthesis_prompt_disease_counts_include_qptm_not_stability():
-    assert "qPTM (Condition type=disease)" in SYNTHESIS_PROMPT
-    assert "never list **PTM-stability** as a disease source" in SYNTHESIS_PROMPT
 
 
 def test_intent_passes_limit_and_sources(monkeypatch):

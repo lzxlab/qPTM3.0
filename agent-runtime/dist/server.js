@@ -7,7 +7,7 @@ import { runAgent, newSessionId, snapshotSession } from "./agent/run.js";
 import { applyAgentEvent, emptyWorkflowState, workflowHasData } from "./agent/workflow-trace.js";
 import { createConversation, listConversations, getConversation, deleteConversation, addMessage, updateTitle, belongsToDevice, titleFromMessage, saveConversationState, clearConversationState, } from "./storage/conversations.js";
 import { parseConversationMessagePost } from "./storage/conversation-messages.js";
-import { isCollectionRequest } from "./agent/gate.js";
+import { isCollectionRequest } from "./agent/collection.js";
 import { parseEntities } from "./context/memory.js";
 import { resetSession } from "./context/session.js";
 import { sanitizeUserVisibleText } from "./agent/protocol.js";
@@ -137,12 +137,8 @@ app.post("/chat", async (c) => {
         role: h.role,
         content: sanitizeUserVisibleText(h.content || ""),
     }));
-    const clarificationResponse = body.clarification_response;
     const traceId = c.req.header("X-Trace-Id")?.trim() || randomUUID();
-    let userMsg = message.trim();
-    if (!userMsg && clarificationResponse) {
-        userMsg = clarificationResponse.skip ? "(Skipped extra details; continue research)" : "(Clarification received)";
-    }
+    const userMsg = message.trim();
     if (conversationId && !belongsToDevice(conversationId, did)) {
         return c.json({ error: "Conversation not found" }, 403);
     }
@@ -170,7 +166,6 @@ app.post("/chat", async (c) => {
                         conversationId,
                         history,
                         mode,
-                        clarificationResponse,
                     })) {
                         applyAgentEvent(workflow, event);
                         const sse = agentEventToSse(event);

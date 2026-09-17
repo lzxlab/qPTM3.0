@@ -7,6 +7,6 @@ export declare function stripProtocolMarkup(text: string): {
     text: string;
     leaked: boolean;
 };
-export declare function failedGenerationMessage(lang?: "zh" | "en"): string;
+export declare function failedGenerationMessage(): string;
 /** If stripping leaves nothing readable, replace with a retry prompt. */
-export declare function sanitizeUserVisibleText(text: string, lang?: "zh" | "en"): string;
+export declare function sanitizeUserVisibleText(text: string): string;
