@@ -1,6 +1,6 @@
-# qPTM Collection Agent
+# Collection Agent
 
-Interactive literature collection pipeline for **qPTM2026** (`agent.php` → Data collection mode).
+Interactive literature collection pipeline for **qPTM 3.0** (`agent.php` → Data collection mode).
 
 Each PMID runs as a single job under `collection-agent/runtime/collection/jobs/{job_id}/`. The user steps through Stage 1–6 with Continue / upload prompts; outputs are CSV artifacts for download (no MySQL).
 
@@ -24,7 +24,7 @@ npx tsx src/index.ts resolve-urls \
 ```
 
 Backend: `POST /collection/resolve-urls` with JSON `{ "accession": "PXD012345" }`,
-or chat messages like “获取 PRIDE PXD012345 的下载链接” (routed via collection mode).
+or chat messages like “get PRIDE PXD012345 download link” (routed via collection mode).
 
 ## Pipeline
 
