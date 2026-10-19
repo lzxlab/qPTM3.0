@@ -2,7 +2,7 @@
 
 A comprehensive resource for quantitative post-translational modification (PTM) proteomics data, integrated with an AI research assistant that guides users through a structured PTM investigation workflow.
 
-![]("Abstract.png")
+![qPTM 3.0](Abstract.png)
 
 
 ## Architecture
