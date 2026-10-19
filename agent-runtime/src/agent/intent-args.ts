@@ -1,6 +1,6 @@
 import type { InvestigationMemory } from "../context/memory.js";
 
-export const DEFAULT_INTENT_LIMIT = 15;
+export const DEFAULT_INTENT_LIMIT = 50;
 export const MAX_INTENT_LIMIT = 200;
 
 export function buildIntentArgs(
@@ -17,7 +17,7 @@ export function buildIntentArgs(
     gene: memory.gene || extra?.gene || "",
     position: memory.position || extra?.position || 0,
     uniprot_ac: memory.uniprot_ac || extra?.uniprot_ac || "",
-    ptm_type: extra?.ptm_type || memory.ptm_type || "phosphorylation",
+    ptm_type: extra?.ptm_type || memory.ptm_type || "all",
     limit: DEFAULT_INTENT_LIMIT,
   };
   if (!extra) return args;

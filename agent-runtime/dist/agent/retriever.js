@@ -25,9 +25,9 @@ const INTENT_HINTS = {
     site: "search_ptm_sites",
 };
 const KEYWORDS = {
-    kinase: /\b(kinase|激酶|磷酸化|phosphorylat|upstream|enzyme|e3|writer|eraser)\b/i,
-    condition: /\b(condition|fold|log2|定量|条件|倍数|treatment|dynamics|when)\b/i,
-    localization: /\b(locali|定位|compartment|domain|结构域|nls|nes|where)\b/i,
+    kinase: /\b(kinase|upstream|enzyme|e3|writer|eraser|激酶)\b/i,
+    condition: /\b(condition|fold|log2|定量|条件|倍数|treatment|dynamics|when|cancer|tumor|tumour)\b/i,
+    localization: /\b(locali|定位|compartment|domain|结构域|nls|nes|where)\b|signal\s*peptid/i,
     function: /\b(function|功能|mechanism|机制|role|stability|稳定|why|意义)\b/i,
     disease: /\b(disease|cancer|疾病|肿瘤|mutation|突变)\b/i,
     drug: /\b(drug|药物|inhibitor|therapy|抑制剂)\b/i,
@@ -41,8 +41,11 @@ function scoreIntents(question, memory) {
         if (re.test(question))
             scores[dim] = (scores[dim] || 0) + 2;
     }
-    if (memory.position)
+    if (/sumo/i.test(question))
+        scores.kinase = (scores.kinase || 0) + 2;
+    if (memory.position && /\b(kinase|upstream|enzyme|激酶)\b/i.test(question)) {
         scores.kinase = (scores.kinase || 0) + 1;
+    }
     if (memory.gene && !memory.position)
         scores.condition = (scores.condition || 0) + 1;
     if (!Object.keys(scores).length)
@@ -59,10 +62,12 @@ export function retrieveIntentTools(question, memory, topK = 4) {
         if (tool && !picked.includes(tool))
             picked.push(tool);
     }
-    if (memory.position && !picked.includes("get_upstream_enzymes")) {
-        picked.push("get_upstream_enzymes");
+    if (memory.position && /\b(kinase|upstream|enzyme|激酶)\b/i.test(question)) {
+        if (!picked.includes("get_upstream_enzymes"))
+            picked.push("get_upstream_enzymes");
     }
-    if (memory.position && /condition|fold|定量|when|treatment/i.test(question)) {
+    if (memory.position &&
+        /condition|fold|定量|when|treatment|cancer|tumor|tumour/i.test(question)) {
         if (!picked.includes("get_site_conditions"))
             picked.push("get_site_conditions");
     }
@@ -74,7 +79,7 @@ export function retrieveIntentTools(question, memory, topK = 4) {
 export function retrieveIntentToolsDeep(question, memory) {
     const base = retrieveIntentTools(question, memory, 6);
     const all = new Set(base);
-    if (/local|domain|where|定位/i.test(question))
+    if (/local|domain|where|定位|signal\s*peptid/i.test(question))
         all.add("get_localization");
     if (/drug|药|inhibitor/i.test(question))
         all.add("get_drug_ptm");
@@ -86,6 +91,10 @@ export function retrieveIntentToolsDeep(question, memory) {
         all.add("get_function_disease");
     if (/ppi|pathway|互作|通路/i.test(question))
         all.add("get_ppi_pathways");
+    if (/cancer|tumor|tumour/i.test(question))
+        all.add("get_site_conditions");
+    if (/sumo/i.test(question))
+        all.add("get_upstream_enzymes");
     return [...all].slice(0, 6);
 }
 function formatCatalogForPrompt(catalog) {

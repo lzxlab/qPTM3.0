@@ -67,7 +67,31 @@ _GENE_STOPWORDS = {
     "POST", "TRANSLATIONAL", "MODIFICATION", "MODIFICATIONS", "EXPLAIN",
     "ABOUT", "DEFINE", "DEFINITION", "INTRODUCTION", "OVERVIEW", "GENERAL",
     "MEANING", "PURPOSE", "ROLE", "ROLES", "ACTION", "ACTIONS",
+    "CANCER", "SIGNAL", "TUMOR", "TUMOUR", "CONTROL", "NORMAL", "BREAST",
+    "BRCA", "UCEC", "LUAD", "LUSC", "LSCC", "OV", "COAD", "READ", "KIRC",
+    "KIRP", "GBM", "LGG", "PRAD", "STAD", "LIHC", "CESC", "BLCA", "HNSC",
+    "THCA", "SKCM", "PAAD", "SARC", "TGCT", "THYM", "UCS", "ACC", "PCPG",
+    "DLBC", "UVM", "CHOL", "MESO", "LAML", "SCCA", "CLLE", "KDNY", "ORCA",
+    "PBCA", "LUNG", "HNSCC", "CRC",
 }
+
+_CANCER_CODES = frozenset(
+    {
+        "BRCA", "UCEC", "LUAD", "LUSC", "LSCC", "OV", "COAD", "READ", "KIRC",
+        "KIRP", "GBM", "LGG", "PRAD", "STAD", "LIHC", "CESC", "BLCA", "HNSC",
+        "THCA", "SKCM", "PAAD", "SARC", "TGCT", "THYM", "UCS", "ACC", "PCPG",
+        "DLBC", "UVM", "CHOL", "MESO", "LAML", "SCCA", "CLLE", "KDNY", "ORCA",
+        "PBCA", "LUNG", "HNSCC", "CRC",
+    }
+)
+
+_CANCER_NAME_RE = re.compile(
+    r"\b((?:breast|lung|liver|colon|colorectal|ovarian|prostate|pancreatic|"
+    r"gastric|endometrial|cervical|kidney|renal|bladder|thyroid|skin)\s+cancer)\b",
+    re.I,
+)
+_PMID_RE = re.compile(r"\b(?:PMID[:\s#]*)?(\d{7,8})\b", re.I)
+_DRUG_RE = re.compile(r"\b(?:drug|inhibitor)\s+([A-Za-z][A-Za-z0-9.-]{2,40})\b", re.I)
 
 
 def _is_plausible_gene(token: str | None) -> bool:
@@ -86,6 +110,56 @@ def _is_plausible_gene(token: str | None) -> bool:
     return bool(re.fullmatch(r"[A-Z][A-Z0-9]{1,14}", t))
 
 
+def extract_condition_query(message: str) -> str:
+    """Independent cancer-type token or a quoted condition name — never the whole sentence."""
+    quoted = [t.strip() for t in re.findall(r"['\"]([^'\"]{2,80})['\"]", message or "") if t.strip()]
+    if quoted:
+        return quoted[0]
+    for m in re.finditer(r"\b([A-Za-z]{2,8})\b", message or ""):
+        tok = m.group(1).upper()
+        if tok in _CANCER_CODES:
+            return tok
+    return ""
+
+
+def extract_cancer(message: str) -> str:
+    name = _CANCER_NAME_RE.search(message or "")
+    if name:
+        return name.group(1)
+    cq = extract_condition_query(message)
+    if cq and cq.upper() in _CANCER_CODES:
+        return cq.upper()
+    return ""
+
+
+def extract_disease(message: str) -> str:
+    name = _CANCER_NAME_RE.search(message or "")
+    if name:
+        return name.group(1)
+    m = re.search(r"\b([A-Za-z][A-Za-z -]{2,40}?)\s+disease\b", message or "", re.I)
+    if not m:
+        return ""
+    phrase = m.group(1).strip()
+    if phrase.lower() in ("the", "a", "this", "that", "human", "a human"):
+        return ""
+    return f"{phrase} disease"
+
+
+def extract_drug(message: str) -> str:
+    m = _DRUG_RE.search(message or "")
+    if not m:
+        return ""
+    tok = m.group(1)
+    if tok.upper() in _GENE_STOPWORDS:
+        return ""
+    return tok
+
+
+def extract_pmids(message: str) -> list[str]:
+    found = [m.group(1) for m in _PMID_RE.finditer(message or "")]
+    return list(dict.fromkeys(found))
+
+
 # ── Entity parsing ────────────────────────────────────────────────
 
 def parse_query_entities(message: str) -> dict[str, Any]:
@@ -94,7 +168,7 @@ def parse_query_entities(message: str) -> dict[str, Any]:
         "gene": None,
         "uniprot_ac": None,
         "position": None,
-        "ptm_type": "phosphorylation",
+        "ptm_type": "all",
         "organism": "human",
         "query": message.strip(),
         # Missense allele when present (e.g. TP53 S15F → ref=S, alt=F, label=S15F)
@@ -230,6 +304,23 @@ def parse_query_entities(message: str) -> dict[str, Any]:
             else:
                 entities["position"] = int(lone_site.group(4))
 
+    # 5) "site 165"
+    if not entities["position"]:
+        site_n = re.search(r"\bsite\s+(\d{2,5})\b", message, re.I)
+        if site_n:
+            entities["position"] = int(site_n.group(1))
+
+    # 6) Gene + bare residue number: "HDGF 165" / "MYH9 1445"
+    if not entities["position"]:
+        num_site = re.search(
+            _GENE_LEFT + r"([A-Z][A-Z0-9]{1,14})\s+(\d{2,5})" + _SITE_RIGHT,
+            message,
+            re.I,
+        )
+        if num_site and _is_plausible_gene(num_site.group(1)):
+            entities["gene"] = num_site.group(1).upper()
+            entities["position"] = int(num_site.group(2))
+
     # Histone shorthand
     if re.search(r"\bhistone\s+h3\b", msg_lower):
         entities["gene"] = entities["gene"] or "H3"
@@ -265,6 +356,23 @@ def parse_query_entities(message: str) -> dict[str, Any]:
     # Canonicalize p53 family
     if entities.get("gene") and entities["gene"].upper() in ("P53", "TP53", "TRP53"):
         entities["gene"] = "Trp53" if mouseish else "TP53"
+
+    cq = extract_condition_query(message)
+    if cq:
+        entities["condition_query"] = cq
+    cancer = extract_cancer(message)
+    if cancer:
+        entities["cancer"] = cancer
+    disease = extract_disease(message)
+    if disease:
+        entities["disease"] = disease
+    drug = extract_drug(message)
+    if drug:
+        entities["drug"] = drug
+    pmids = extract_pmids(message)
+    if pmids:
+        entities["pmids"] = pmids
+        entities["pmid"] = pmids[0]
 
     return entities
 
@@ -349,11 +457,21 @@ def infer_tool_arguments(
     if uniprot:
         uniprot = normalize_uniprot_ac(str(uniprot)) or uniprot
     position = entities.get("position") or (getattr(state, "target_position", None) if state else None)
-    ptm_type = entities.get("ptm_type") or (
+    specified_ptm = entities.get("ptm_type") or (
         getattr(state, "target_ptm_type", None) if state else None
-    ) or "phosphorylation"
+    ) or ""
+    specified_ptm = str(specified_ptm).strip()
+    qptm_ptm = specified_ptm or "all"
+    if specified_ptm and specified_ptm.lower() != "all":
+        ptm_type = specified_ptm
+    else:
+        ptm_type = "phosphorylation"
     organism = entities.get("organism", "human")
     query = entities.get("query", "")
+    cancer = str(entities.get("cancer") or "").strip()
+    drug = str(entities.get("drug") or "").strip()
+    disease = str(entities.get("disease") or "").strip()
+    condition_query = str(entities.get("condition_query") or "").strip()
 
     if tool_name == "qptm_search":
         from app.sources.uniprot_id import organism_id_for, resolve_identity
@@ -375,7 +493,7 @@ def infer_tool_arguments(
             "query": search_q,
             "field": field,
             "organism": organism,
-            "ptm_type": ptm_type,
+            "ptm_type": qptm_ptm,
             "per_page": 20,
         }
         if gene:
@@ -390,11 +508,27 @@ def infer_tool_arguments(
         args: dict[str, Any] = {
             "uniprot_ac": uniprot,
             "position": position,
-            "ptm_type": ptm_type,
+            "ptm_type": qptm_ptm,
         }
-        ctype = str(entities.get("contrast_type") or "").strip().lower()
+        ctype = str(entities.get("condition_type") or entities.get("contrast_type") or "").strip().lower()
         if ctype:
-            args["contrast_type"] = ctype
+            args["condition_type"] = ctype
+        if condition_query:
+            args["condition_query"] = condition_query
+        return args
+
+    if tool_name == "qptm_condition_sites":
+        q = condition_query or cancer or ""
+        ctype = str(entities.get("condition_type") or entities.get("contrast_type") or "").strip().lower()
+        if not q and not ctype:
+            return {}
+        args = {
+            "query": q,
+            "ptm_type": qptm_ptm,
+            "sort": "abs_log2",
+        }
+        if ctype:
+            args["condition_type"] = ctype
         return args
 
     if tool_name == "qptm_kinases":
@@ -432,6 +566,8 @@ def infer_tool_arguments(
             args["position"] = position
         if tool_name in ("psp_regulatory", "ptm_stability", "dbptm_functional"):
             args["ptm_type"] = ptm_type
+        if tool_name in ("psp_disease_sites", "psp_ptmvar") and disease:
+            args["disease"] = disease
         return args
 
     if tool_name in ("activedriver_mutations", "activedriver_kinase_network"):
@@ -456,18 +592,22 @@ def infer_tool_arguments(
         if ptm_type:
             args["ptm_type"] = ptm_type
         args["status"] = "Curated"
+        if drug:
+            args["drug"] = drug
         if not (gene or uniprot):
             return {}
         return args
 
     if tool_name == "drugbank_targets":
-        if not (gene or uniprot):
+        if not (gene or uniprot or drug):
             return {}
         args: dict[str, Any] = {}
         if gene:
             args["gene"] = gene
         if uniprot:
             args["uniprot_ac"] = uniprot
+        if drug:
+            args["drug"] = drug
         return args
 
     if tool_name == "weram_regulators":
@@ -536,18 +676,19 @@ def infer_tool_arguments(
         return args
 
     if tool_name == "ekpi_kinases":
-        if not ((gene or uniprot) and position):
+        if not (gene or uniprot):
             return {}
         args: dict[str, Any] = {"evidence_type": "any"}
         if gene:
             args["gene"] = gene
         if uniprot:
             args["uniprot_ac"] = uniprot
-        args["position"] = position
+        if position:
+            args["position"] = position
         return args
 
     if tool_name == "ekpi_quantitative":
-        if not ((gene or uniprot) and position):
+        if not (gene or uniprot):
             return {}
         args: dict[str, Any] = {
             "cohort": "tumor",
@@ -557,7 +698,8 @@ def infer_tool_arguments(
             args["gene"] = gene
         if uniprot:
             args["uniprot_ac"] = uniprot
-        args["position"] = position
+        if position:
+            args["position"] = position
         return args
 
     if tool_name == "gpssumo2_sites":
@@ -587,6 +729,8 @@ def infer_tool_arguments(
             args["site_position"] = position
         if ptm_type:
             args["modification_type"] = ptm_type
+        if drug:
+            args["drug"] = drug
         return args
 
     if tool_name in ("ptmphase_llps", "ptmphase_phosllps", "dscope_literature", "dscope_predictions"):
@@ -615,6 +759,8 @@ def infer_tool_arguments(
             args["position"] = position
         if ptm_type:
             args["ptm_type"] = ptm_type
+        if disease:
+            args["disease"] = disease
         args["source"] = "both"
         return args
 
@@ -628,6 +774,8 @@ def infer_tool_arguments(
             args["gene"] = gene
         if position:
             args["position"] = position
+        if cancer:
+            args["cancer"] = cancer
         return args
 
     if tool_name == "ptmint_ppi":
@@ -730,7 +878,9 @@ def infer_tool_arguments(
         return {"query": q, "limit": 20}
 
     if tool_name == "pubmed_fetch_abstracts":
-        pmids = entities.get("pmids")
+        pmids = entities.get("pmids") or entities.get("pmid")
+        if isinstance(pmids, str):
+            pmids = [p.strip() for p in re.split(r"[\s,;]+", pmids) if p.strip().isdigit()]
         if not pmids:
             return {}
         args: dict[str, Any] = {"pmids": pmids}
@@ -739,7 +889,9 @@ def infer_tool_arguments(
         return args
 
     if tool_name == "pubmed_fetch_fulltext":
-        pmids = entities.get("pmids") or entities.get("fulltext_pmids")
+        pmids = entities.get("pmids") or entities.get("fulltext_pmids") or entities.get("pmid")
+        if isinstance(pmids, str):
+            pmids = [p.strip() for p in re.split(r"[\s,;]+", pmids) if p.strip().isdigit()]
         if not pmids:
             return {}
         args = {"pmids": pmids}

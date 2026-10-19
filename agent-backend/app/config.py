@@ -17,16 +17,16 @@ _REPO_ROOT = _BACKEND_ROOT.parent
 
 
 class Settings(BaseSettings):
-    # LLM API (OpenCode Go / Zen — OpenAI-compatible; env names kept for compatibility)
+    # LLM API (DeepSeek official — OpenAI-compatible; env names kept for compatibility)
     deepseek_api_key: str = ""
-    deepseek_base_url: str = "https://opencode.ai/zen/go/v1"
-    deepseek_zen_base_url: str = "https://opencode.ai/zen/v1"
+    deepseek_base_url: str = "https://api.deepseek.com/v1"
+    deepseek_zen_base_url: str = "https://api.deepseek.com/v1"
     deepseek_model: str = "deepseek-flash"
     # Comma-separated bare model ids tried after DEEPSEEK_MODEL on failure
-    deepseek_fallback_models: str = "deepseek-v4-flash,glm-5.2,deepseek-v4-pro"
+    deepseek_fallback_models: str = "deepseek-v4-pro"
 
     # qPTM REST API (PHP backend — deployed at /api/ on the qPTM web server)
-    qptm_api_base_url: str = "https://qptm3.omicsbio.info/api"
+    qptm_api_base_url: str = "https://qptm.omicsbio.info/api"
 
     # External database APIs
     uniprot_api_base_url: str = "https://rest.uniprot.org"
@@ -91,14 +91,10 @@ class Settings(BaseSettings):
     # for this long. Large Stage5 parses send heartbeats so wall-clock can exceed
     # this value safely; a truly hung process is still reaped.
     collection_stage_timeout_seconds: int = 1800
-    # pi-ai id, e.g. opencode-go/deepseek-v4-flash — separate from DEEPSEEK_MODEL (chat)
+    # pi-ai id, e.g. deepseek/deepseek-v4-flash — separate from DEEPSEEK_MODEL (chat)
     collection_model: str = ""
     # Comma-separated pi-ai provider/model ids tried after COLLECTION_MODEL
-    collection_fallback_models: str = (
-        "opencode-go/deepseek-v4-flash,"
-        "opencode-go/glm-5.2,"
-        "opencode-go/deepseek-v4-pro"
-    )
+    collection_fallback_models: str = "deepseek/deepseek-v4-pro"
     unpaywall_email: str = ""
     ncbi_api_key: str = ""
     ncbi_email: str = ""
@@ -109,7 +105,7 @@ class Settings(BaseSettings):
     port: int = 8100
 
     # CORS
-    cors_origins: str = "http://localhost,http://qptm3.omicsbio.info,https://qptm3.omicsbio.info"
+    cors_origins: str = "http://localhost,http://qptm.omicsbio.info,https://qptm.omicsbio.info"
 
     # HTTP client defaults
     http_timeout_seconds: int = 60

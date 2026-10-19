@@ -4,7 +4,8 @@ import {
   retrieveIntentTools,
   retrieveIntentToolsDeep,
 } from "../src/agent/retriever.js";
-import { parseEntities } from "../src/context/memory.js";
+import { parseEntities, emptyMemory } from "../src/context/memory.js";
+import { buildIntentArgs } from "../src/agent/intent-args.js";
 
 const memory = { gene: "AKT1", position: 473, uniprot_ac: "P31749", ptm_type: "phosphorylation" };
 
@@ -29,6 +30,14 @@ assert.ok(
   "concept retriever should not be kinase-only",
 );
 
+const phosphoOnly = retrieveIntentTools(
+  "HDGF 165 phosphorylation fold change in BRCA",
+  { gene: "HDGF", position: 165, uniprot_ac: "P51858", ptm_type: "all" },
+  4,
+);
+assert.ok(phosphoOnly.includes("get_site_conditions"));
+assert.equal(phosphoOnly.includes("get_upstream_enzymes"), false);
+
 const deep = retrieveIntentToolsDeep(kinaseQ, memory);
 assert.ok(deep.includes("get_upstream_enzymes"));
 
@@ -37,5 +46,24 @@ for (const name of MCP_INTENT_TOOLS) {
   assert.match(name, /^[a-z_]+$/);
 }
 assert.equal(MCP_INTENT_TOOLS.includes("qptm_invoke" as never), false);
+
+const mem = emptyMemory();
+mem.gene = "HDGF";
+mem.position = 165;
+mem.uniprot_ac = "P51858";
+const args = buildIntentArgs(mem, "HDGF S165 in breast cancer", {
+  condition_query: "BRCA",
+  condition_type: "disease",
+  drug: "Gefitinib",
+  disease: "breast cancer",
+  cancer: "BRCA",
+});
+assert.equal(args.condition_query, "BRCA");
+assert.equal(args.condition_type, "disease");
+assert.equal(args.drug, "Gefitinib");
+assert.equal(args.disease, "breast cancer");
+assert.equal(args.cancer, "BRCA");
+assert.equal(args.gene, "HDGF");
+assert.equal(args.position, 165);
 
 console.log("mcp-intent tests passed");

@@ -49,7 +49,7 @@ run-job options:
   --resume-from <stage>   auto | stage1 | stage2 | stage3 | stage4 | stage5 | stage6
   --force-include         Override Stage-1 exclude (user Include button)
   --concurrency <n>       Parallel LLM calls (default 1)
-  --model <id>            e.g. opencode-go/deepseek-v4-flash
+  --model <id>            e.g. deepseek/deepseek-v4-flash
 
 resolve-urls options:
   --accession <id>        MS accession (repeatable; also accepts comma-separated)

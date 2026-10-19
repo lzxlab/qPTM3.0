@@ -12,6 +12,34 @@ const memory = { gene: "AKT1", position: 473, uniprot_ac: "P31749", ptm_type: "p
 const kinaseTools = retrieveIntentTools("Which kinases phosphorylate AKT1 S473?", memory, 6);
 assert.ok(kinaseTools.includes("get_upstream_enzymes"));
 
+const phosphoOnly = retrieveIntentTools(
+  "HDGF 165 phosphorylation fold change in BRCA",
+  { gene: "HDGF", position: 165, uniprot_ac: "P51858", ptm_type: "all" },
+  6,
+);
+assert.ok(phosphoOnly.includes("get_site_conditions"));
+assert.equal(phosphoOnly.includes("get_upstream_enzymes"), false);
+
+const cancerQ = retrieveIntentTools(
+  "MYH9 1445 tumor vs normal",
+  { gene: "MYH9", position: 1445, uniprot_ac: "P35579", ptm_type: "all" },
+  6,
+);
+assert.ok(cancerQ.includes("get_site_conditions"));
+
+const sumoQ = retrieveIntentTools("SUMO sites on TP53", { gene: "TP53" }, 6);
+assert.ok(sumoQ.includes("get_upstream_enzymes"));
+
+const signalQ = retrieveIntentTools("signal peptide of EGFR", { gene: "EGFR" }, 6);
+assert.ok(signalQ.includes("get_localization"));
+
+const breast = parseEntities("breast cancer PTM changes");
+assert.notEqual(breast.gene, "CANCER");
+
+const hdgf = parseEntities("HDGF 165 BRCA");
+assert.equal(hdgf.gene, "HDGF");
+assert.equal(hdgf.position, 165);
+
 const greetingFallback = retrieveIntentTools("hello", parseEntities("hello"), 4);
 assert.ok(Array.isArray(greetingFallback));
 

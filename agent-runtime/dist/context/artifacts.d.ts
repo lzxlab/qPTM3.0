@@ -24,6 +24,9 @@ export interface Artifact {
     payload?: ArtifactPayload;
     createdAt: string;
 }
+/** Lift nested dicts (log2_range.avg → log2_avg) so quantitative fields survive compaction. */
+export declare function flattenRow(row: Record<string, unknown>): Record<string, unknown>;
+export declare function compactRow(row: Record<string, unknown>): Record<string, unknown>;
 /** Compact MCP intent blocks so sessions can list last-query hits. */
 export declare function compactDbPayload(result: {
     intent?: string;

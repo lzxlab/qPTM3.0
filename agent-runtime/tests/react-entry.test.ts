@@ -21,7 +21,10 @@ assert.equal(src.includes("clarificationResponse"), false);
 assert.equal(src.includes("cluesForComposer"), false);
 
 const react = readFileSync(join(here, "../src/agent/react-loop.ts"), "utf8");
-assert.match(react, /retrieveIntentToolsLlm/);
+assert.equal(react.includes("retrieveIntentToolsLlm"), false);
+assert.match(react, /catalog\.map\(\(t\) => t\.name\)/);
+assert.match(react, /ask in the answer text/);
+assert.match(react, /do not claim the database has no records/);
 assert.match(react, /callSearchLiteratureDeep/);
 assert.match(react, /web_search/);
 assert.match(react, /maxTokens:\s*8192/);

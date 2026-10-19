@@ -9,8 +9,12 @@ const ENTITY_KEYS = [
     "cell_type",
     "organism",
     "condition",
+    "condition_name",
     "treatment",
+    "drug",
 ];
+const OBS_ROWS_PER_BLOCK = 8;
+const OBS_MAX_CHARS = 4000;
 export function emptyCallKey(tool, args) {
     return JSON.stringify({
         tool,
@@ -34,7 +38,7 @@ export function followableEntitiesFromPayload(payload, exclude = [], max = 8) {
             for (const k of ENTITY_KEYS) {
                 const n = String(r[k] || "").trim();
                 const key = n.toLowerCase();
-                if (!n || n.length < 2 || n.length > 24 || skip.has(key) || seen.has(key))
+                if (!n || n.length < 2 || n.length > 80 || skip.has(key) || seen.has(key))
                     continue;
                 if (/^\d+$/.test(n))
                     continue;
@@ -55,6 +59,24 @@ function truncationTags(payload) {
         }
     }
     return tags;
+}
+function rowPreviewLine(row) {
+    return Object.entries(row)
+        .map(([k, v]) => `${k}=${v}`)
+        .join("; ");
+}
+function rowsPreview(payload) {
+    if (!payload?.blocks?.length)
+        return "";
+    const chunks = [];
+    for (const b of payload.blocks) {
+        if (!b.rows?.length)
+            continue;
+        const label = b.source || b.tool || "src";
+        const lines = b.rows.slice(0, OBS_ROWS_PER_BLOCK).map((r, i) => `${i + 1}. ${rowPreviewLine(r)}`);
+        chunks.push(`${label} rows:\n${lines.join("\n")}`);
+    }
+    return chunks.join("\n");
 }
 /** Honest tool observation for the ReAct scheduler (not user-visible). */
 export function formatToolObservation(tool, result, payload, extraEntities = [], excludeEntities = []) {
@@ -83,7 +105,8 @@ export function formatToolObservation(tool, result, payload, extraEntities = [],
     const parts = [
         tags.join(" ").trim(),
         (result.summary || "").slice(0, 1200),
+        rowsPreview(payload),
         entityLine,
     ].filter(Boolean);
-    return parts.join("\n").slice(0, 2500);
+    return parts.join("\n").slice(0, OBS_MAX_CHARS);
 }

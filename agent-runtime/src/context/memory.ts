@@ -26,7 +26,7 @@ export function emptyMemory(): InvestigationMemory {
     gene: null,
     uniprot_ac: null,
     position: null,
-    ptm_type: "phosphorylation",
+    ptm_type: "all",
     organism: "human",
     pmid: null,
     mutation_label: null,
@@ -62,10 +62,18 @@ export function parseEntities(message: string): ParsedEntities {
   } else if (named) {
     out.position = Number(named[1]);
     out.ptm_type = "phosphorylation";
+  } else {
+    const siteN = message.match(/\bsite\s+(\d{2,5})\b/i);
+    const geneNum = message.match(/\b([A-Z][A-Z0-9]{1,9})\s+(\d{2,5})\b/);
+    if (siteN) out.position = Number(siteN[1]);
+    else if (geneNum) out.position = Number(geneNum[2]);
   }
 
   const genes = [...message.matchAll(GENE_RE)].map((m) => m[1]);
-  const common = new Set(["DNA", "RNA", "PTM", "WHO", "WHEN", "WHERE", "WHY", "PMID", "HTTP", "HTTPS"]);
+  const common = new Set([
+    "DNA", "RNA", "PTM", "WHO", "WHEN", "WHERE", "WHY", "PMID", "HTTP", "HTTPS",
+    "CANCER", "SIGNAL", "TUMOR", "TUMOUR", "CONTROL", "BRCA", "UCEC",
+  ]);
   for (const g of genes) {
     // Never treat residue tokens like S15 / Y394 as gene symbols.
     if (/^[STYKR]\d{2,5}$/i.test(g)) continue;
@@ -145,7 +153,7 @@ export function mergeEntities(memory: InvestigationMemory, parsed: ParsedEntitie
       memory.gene = null;
       memory.uniprot_ac = null;
       memory.position = null;
-      memory.ptm_type = "phosphorylation";
+      memory.ptm_type = "all";
     }
   }
 

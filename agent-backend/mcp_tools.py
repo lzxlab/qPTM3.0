@@ -14,7 +14,7 @@ from app.sources.uniprot_id import (
     resolve_identity,
 )
 from app.tools.registry import registry
-from app.mcp.tool_args import infer_tool_arguments, parse_query_entities
+from app.mcp.tool_args import infer_tool_arguments, parse_query_entities, _is_plausible_gene
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +66,6 @@ _NEEDS_UNIPROT = {
 _NEEDS_POSITION = {
     "qptm_kinases",
     "qptm_site_conditions",
-    "psp_regulatory",
-    "funcscore_phosphosite",
-    "ptm_stability",
-    "ekpi_quantitative",
 }
 
 
@@ -131,13 +127,26 @@ def _infer_gene_position(query: str, gene: str | None, position: int | None) -> 
         else:
             for m in re.finditer(r"\b([A-Z][A-Z0-9]{1,9})\b", query or ""):
                 tok = m.group(1)
-                if not _looks_like_residue_token(tok):
+                if not _looks_like_residue_token(tok) and _is_plausible_gene(tok):
                     g = tok
                     break
     if not p:
         m = re.search(r"\b[STYKR](\d{2,5})\b", query or "", re.I)
         if m:
             p = int(m.group(1))
+        else:
+            m = re.search(r"\bsite\s+(\d{2,5})\b", query or "", re.I)
+            if m:
+                p = int(m.group(1))
+            elif g:
+                m = re.search(rf"\b{re.escape(str(g))}\s+(\d{{2,5}})\b", query or "", re.I)
+                if m:
+                    p = int(m.group(1))
+            else:
+                m = re.search(r"\b([A-Z][A-Z0-9]{1,9})\s+(\d{2,5})\b", query or "")
+                if m and _is_plausible_gene(m.group(1)):
+                    g = m.group(1)
+                    p = int(m.group(2))
     return g, p
 
 
@@ -145,9 +154,21 @@ def _build_entities(args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("query") or "")
     entities = parse_query_entities(query)
     entities["query"] = query
-    for key in ("gene", "uniprot_ac", "position", "ptm_type", "pmid", "organism", "entity"):
+    parsed_ptm = str(entities.get("ptm_type") or "").strip().lower()
+    for key in (
+        "gene", "uniprot_ac", "position", "ptm_type", "pmid", "pmids",
+        "organism", "entity", "cancer", "drug", "disease", "condition_query",
+        "contrast_type",
+        "condition_type",
+    ):
         val = args.get(key)
         if val not in (None, "", 0, "0"):
+            if key == "ptm_type":
+                incoming = str(val).strip().lower()
+                if incoming in ("all", "phosphorylation") and parsed_ptm not in (
+                    "", "all", "phosphorylation",
+                ):
+                    continue
             entities[key] = val
     # Normalize types
     if entities.get("position") is not None:
@@ -330,7 +351,7 @@ def qptm_resolve(
                 "gene": gene,
                 "uniprot_ac": entities.get("uniprot_ac"),
                 "position": entities.get("position"),
-                "ptm_type": entities.get("ptm_type") or "phosphorylation",
+                "ptm_type": entities.get("ptm_type") or "all",
                 "organism": entities.get("organism") or "human",
                 "protein_name": resolved.get("protein_name"),
             },
@@ -561,6 +582,6 @@ def qptm_invoke(tool_name: str, arguments_json: str = "{}") -> str:
             "gene": entities.get("gene"),
             "uniprot_ac": entities.get("uniprot_ac"),
             "position": entities.get("position"),
-            "ptm_type": entities.get("ptm_type") or "phosphorylation",
+            "ptm_type": entities.get("ptm_type") or "all",
         }
     return _dump(out)

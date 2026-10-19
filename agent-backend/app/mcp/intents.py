@@ -19,7 +19,7 @@ from mcp_tools import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LIMIT = 15
+DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 INTENT_TOOL_TIMEOUT_S = 25.0
 INTENT_MAX_WORKERS = 3
@@ -32,9 +32,10 @@ _STABILITY_QUERY_RE = re.compile(
     r"stabil|destabil|半衰期|降解",
     re.I,
 )
+_SUMO_QUERY_RE = re.compile(r"sumo", re.I)
 
 SOURCE_TOOL_ALIASES: dict[str, tuple[str, ...]] = {
-    "qptm": ("qptm_kinases", "qptm_site_conditions", "qptm_search"),
+    "qptm": ("qptm_kinases", "qptm_site_conditions", "qptm_condition_sites", "qptm_search"),
     "psp": ("psp_kinase_substrate", "psp_regulatory", "psp_disease_sites", "psp_ptmvar"),
     "phosphosite": ("psp_kinase_substrate", "psp_regulatory", "psp_disease_sites", "psp_ptmvar"),
     "phosphositeplus": ("psp_kinase_substrate", "psp_regulatory", "psp_disease_sites", "psp_ptmvar"),
@@ -46,6 +47,9 @@ SOURCE_TOOL_ALIASES: dict[str, tuple[str, ...]] = {
     "gpsuber": ("gpsuber_e3_sites",),
     "weram": ("weram_regulators",),
     "kaka": ("kaka_kinase_mutations",),
+    "gpssumo2": ("gpssumo2_sites",),
+    "sumo": ("gpssumo2_sites",),
+    "signalp": ("signalp_prediction",),
 }
 
 
@@ -80,6 +84,7 @@ INTENT_TOOL_MAP: dict[str, list[tuple[str, str | None]]] = {
     ],
     "get_site_conditions": [
         ("qptm_site_conditions", "experimental"),
+        ("qptm_condition_sites", "experimental"),
         ("ekpi_quantitative", "experimental"),
         ("cancerproteome_disease", "experimental"),
     ],
@@ -91,8 +96,10 @@ INTENT_TOOL_MAP: dict[str, list[tuple[str, str | None]]] = {
         ("ubibrowser_interactions", "curated"),
         ("gpsuber_e3_sites", "curated"),
         ("weram_regulators", "curated"),
-        ("gps6_kinases", "predicted"),
         ("kaka_kinase_mutations", "curated"),
+        ("activedriver_kinase_network", "curated"),
+        ("gps6_kinases", "predicted"),
+        ("gpssumo2_sites", "predicted"),
     ],
     "get_function_disease": [
         ("psp_regulatory", "curated"),
@@ -125,6 +132,7 @@ INTENT_TOOL_MAP: dict[str, list[tuple[str, str | None]]] = {
         ("uniprot_annotation", "curated"),
         ("interpro_domains", "curated"),
         ("pfam_domains", "curated"),
+        ("signalp_prediction", "predicted"),
     ],
     "get_ppi_pathways": [
         ("ptmint_ppi", "experimental"),
@@ -150,19 +158,33 @@ MCP_SERVER_INSTRUCTIONS = """You are the qPTM PTM research assistant with MCP ac
 
 Use these intent tools (not raw database names):
 - resolve_ptm_target — resolve gene/site → UniProt before site-specific queries
-- search_ptm_sites — discover PTM events (qPTM + UniProt context)
-- get_site_conditions — quantitative conditions / fold changes (qPTM, eKPI, CancerProteome)
+- search_ptm_sites — discover PTM events (qPTM + UniProt context); not for a residue's log2 / fold-change
+- get_site_conditions — site-level quantitative log2 / fold-change (qPTM, eKPI, CancerProteome). Fill condition_query with the database condition token (e.g. BRCA), condition_type=disease for tumor vs normal
 - get_upstream_enzymes — kinases, E3/DUB, histone writers (experimental/curated blocks before GPS predictions)
-- get_function_disease — regulatory annotations, disease PTMs, stability, mutations
+- get_function_disease — regulatory annotations, disease PTMs, stability, mutations. Fill disease with the name used in PTMD/PSP when the user named a disease
 - get_llps — phase separation (experimental separate from predictions)
-- get_drug_ptm — PMADS / DrugBank / decryptM (different evidence types per block)
+- get_drug_ptm — PMADS / DrugBank / decryptM. Fill drug with the compound name used in those sources (e.g. Gefitinib)
 - get_localization — compartments, NLS/NES, domains
 - get_ppi_pathways — PTM-dependent PPI and pathways
 - search_literature — PubTator3 + PubMed esearch + Europe PMC; abstracts via PubMed; OA full text via Europe PMC XML
 
 Each tool returns blocks[] per data source with evidence_level (experimental/curated/predicted/mixed).
 Choose intents by research dimension (regulation, conditions, downstream function, localization) — do not query every tool for every question.
+If a named cancer, drug, disease, or condition cannot be filled with the name that database uses, leave it for the client to ask the user — do not invent mappings.
 Never treat GPS scores or PhosLLPS predictions as experimental facts. Cite database names and PMIDs in answers."""
+
+
+_ENTITY_EXTRAS = (
+    "condition_query",
+    "contrast_type",
+    "condition_type",
+    "drug",
+    "disease",
+    "cancer",
+    "pmid",
+    "pmids",
+    "organism",
+)
 
 
 def _prepare_entities(
@@ -171,16 +193,20 @@ def _prepare_entities(
     position: int = 0,
     uniprot_ac: str = "",
     ptm_type: str = "",
+    **extra: Any,
 ) -> dict[str, Any]:
-    entities = _build_entities(
-        {
-            "query": query,
-            "gene": gene,
-            "position": position,
-            "uniprot_ac": uniprot_ac,
-            "ptm_type": ptm_type or "phosphorylation",
-        }
-    )
+    payload: dict[str, Any] = {
+        "query": query,
+        "gene": gene,
+        "position": position,
+        "uniprot_ac": uniprot_ac,
+        "ptm_type": ptm_type,
+    }
+    for key in _ENTITY_EXTRAS:
+        val = extra.get(key)
+        if val not in (None, "", 0, "0"):
+            payload[key] = val
+    entities = _build_entities(payload)
     g, p = _infer_gene_position(query, entities.get("gene"), entities.get("position"))
     if g:
         entities["gene"] = g
@@ -195,7 +221,7 @@ def _resolved_dict(entities: dict[str, Any]) -> dict[str, Any]:
         "gene": entities.get("gene"),
         "uniprot_ac": entities.get("uniprot_ac"),
         "position": entities.get("position"),
-        "ptm_type": entities.get("ptm_type") or "phosphorylation",
+        "ptm_type": entities.get("ptm_type") or "all",
         "organism": entities.get("organism") or "human",
         "protein_name": resolved.get("protein_name"),
     }
@@ -245,11 +271,22 @@ def _run_tools(
         and not _STABILITY_QUERY_RE.search(query)
         and tool_filter is None
     )
+    skip_sumo = (
+        intent == "get_upstream_enzymes"
+        and not _SUMO_QUERY_RE.search(query)
+        and str(call_entities.get("ptm_type") or "").lower() != "sumoylation"
+        and tool_filter is None
+    )
+    has_pos = bool(call_entities.get("position"))
     tool_jobs: list[tuple[str, str | None]] = []
     for tool_name, tier in INTENT_TOOL_MAP.get(intent, []):
         if tool_filter and not tool_filter(tool_name):
             continue
         if skip_stability and tool_name == "ptm_stability":
+            continue
+        if skip_sumo and tool_name == "gpssumo2_sites":
+            continue
+        if intent == "get_site_conditions" and tool_name == "qptm_condition_sites" and has_pos:
             continue
         tool_jobs.append((tool_name, tier))
 
@@ -282,8 +319,9 @@ def intent_resolve_ptm_target(
     position: int = 0,
     uniprot_ac: str = "",
     ptm_type: str = "",
+    **extra: Any,
 ) -> str:
-    entities = _prepare_entities(query, gene, position, uniprot_ac, ptm_type)
+    entities = _prepare_entities(query, gene, position, uniprot_ac, ptm_type, **extra)
     resolved = _resolved_dict(entities)
     ok = bool(resolved.get("uniprot_ac") or resolved.get("gene"))
     bits = []
@@ -315,11 +353,20 @@ def _intent_multi(
     limit: int = DEFAULT_LIMIT,
     sources: str = "",
     tool_filter: Callable[[str], bool] | None = None,
+    **extra: Any,
 ) -> str:
     limit = clamp_limit(limit)
-    entities = _prepare_entities(query, gene, position, uniprot_ac, ptm_type)
-    if intent == "get_function_disease" and _DISEASE_QUERY_RE.search(query or ""):
-        entities["contrast_type"] = "disease"
+    entities = _prepare_entities(query, gene, position, uniprot_ac, ptm_type, **extra)
+    if (
+        not str(entities.get("condition_type") or entities.get("contrast_type") or "").strip()
+        and intent in ("get_function_disease", "get_site_conditions")
+        and (
+            _DISEASE_QUERY_RE.search(query or "")
+            or entities.get("cancer")
+            or entities.get("condition_query")
+        )
+    ):
+        entities["condition_type"] = "disease"
     resolved = _resolved_dict(entities)
     filt = tool_filter or parse_source_filter(sources)
     blocks, summaries = _run_tools(intent, entities, limit=limit, tool_filter=filt)
@@ -395,8 +442,9 @@ def intent_search_literature(
     fulltext_pmids: str = "",
     sources: str = "",
     max_chars: int = 0,
+    **extra: Any,
 ) -> str:
-    entities = _prepare_entities(query, gene, position, uniprot_ac, ptm_type)
+    entities = _prepare_entities(query, gene, position, uniprot_ac, ptm_type, **extra)
     resolved = _resolved_dict(entities)
     blocks: list[dict[str, Any]] = []
     summaries: list[str] = []
@@ -406,6 +454,12 @@ def intent_search_literature(
         x for x in [entities.get("gene"), str(entities.get("position") or ""), ptm_type] if x
     )
     pmid_list = [p.strip() for p in re_split_pmids(pmids) if p.strip().isdigit()]
+    if not pmid_list:
+        extra = entities.get("pmids") or entities.get("pmid")
+        if isinstance(extra, list):
+            pmid_list = [str(p).strip() for p in extra if str(p).strip().isdigit()]
+        elif extra:
+            pmid_list = [p.strip() for p in re_split_pmids(str(extra)) if p.strip().isdigit()]
     ft_list = [p.strip() for p in re_split_pmids(fulltext_pmids) if p.strip().isdigit()]
     search_payload = {**entities, "query": lit_query, "limit": limit}
     if lit_query and not pmid_list and not ft_list:
@@ -511,29 +565,62 @@ COMMON_PARAMS: dict[str, Any] = {
         "uniprot_ac": {"type": "string", "description": "UniProt accession if known"},
         "ptm_type": {
             "type": "string",
-            "description": "PTM type (default phosphorylation)",
-            "default": "phosphorylation",
+            "description": "PTM type (default all when unspecified)",
         },
         "limit": {
             "type": "integer",
-            "description": "Max rows per source block (default 15, max 200)",
+            "description": "Max rows per source block (default 50, max 200)",
             "default": DEFAULT_LIMIT,
         },
         "sources": {
             "type": "string",
             "description": "Optional comma-separated source filter (e.g. qptm, psp, gps)",
         },
+        "condition_query": {
+            "type": "string",
+            "description": (
+                "qPTM condition token or TCGA code as stored (e.g. BRCA), "
+                "not the whole sentence and not a full English cancer name"
+            ),
+        },
+        "condition_type": {
+            "type": "string",
+            "description": "Condition class: disease, drug_treatment, or cell_state. Use disease for tumor vs normal.",
+        },
+        "drug": {
+            "type": "string",
+            "description": "Drug or inhibitor name as stored (e.g. Gefitinib)",
+        },
+        "disease": {
+            "type": "string",
+            "description": "Disease name as stored in PTMD/PSP",
+        },
+        "cancer": {
+            "type": "string",
+            "description": "Cancer cohort or type as stored (e.g. BRCA)",
+        },
     },
 }
 
 INTENT_DESCRIPTIONS: dict[str, str] = {
     "resolve_ptm_target": "Resolve gene/site to UniProt accession before site-specific PTM queries.",
-    "search_ptm_sites": "Discover PTM sites and protein context (qPTM quantitative search + UniProt).",
-    "get_site_conditions": "Quantitative PTM conditions: fold changes across treatments (qPTM, eKPI, CancerProteome).",
+    "search_ptm_sites": "Discover PTM sites and protein context (qPTM quantitative search + UniProt). Not for a residue log2 / fold-change.",
+    "get_site_conditions": (
+        "Site-level quantitative PTM conditions and log2 / fold-change (qPTM, eKPI, CancerProteome). "
+        "Prefer this over search_ptm_sites for a residue ratio. "
+        "Fill condition_query with the database token (e.g. BRCA for breast cancer); "
+        "condition_type=disease for tumor vs normal."
+    ),
     "get_upstream_enzymes": "Upstream regulators: kinases (experimental/curated first), E3/DUB, histone writers, then GPS predictions.",
-    "get_function_disease": "Functional/disease annotations: PSP regulatory, PTMD states, stability, mutations.",
+    "get_function_disease": (
+        "Functional/disease annotations: PSP regulatory, PTMD states, stability, mutations. "
+        "Fill disease with the name used in PTMD/PSP when the user named a disease."
+    ),
     "get_llps": "Phase separation / LLPS: experimental PTMPhaSe and dSCOPE literature separate from predictions.",
-    "get_drug_ptm": "Drug–PTM links: PMADS curated associations, DrugBank targets, decryptM dose–response.",
+    "get_drug_ptm": (
+        "Drug–PTM links: PMADS curated associations, DrugBank targets, decryptM dose–response. "
+        "Fill drug with the compound name used in those sources (e.g. Gefitinib)."
+    ),
     "get_localization": "Subcellular localization, NLS/NES motifs, compartments, and structural domains.",
     "get_ppi_pathways": "PTM-dependent PPI, curated interactions, and pathway membership.",
     "search_literature": "Search PubTator3, PubMed esearch, and Europe PMC; fetch abstracts by PMID; OA full text via Europe PMC XML.",

@@ -3,9 +3,10 @@
 Stage 1 tools:
   1. qptm_search — search PTM events by keyword
   2. qptm_site_conditions — get conditions for a specific site
+  3. qptm_condition_sites — get sites/events for a named condition
 
 Stage 2 tool:
-  3. qptm_kinases — get kinases from qPTM's integrated data
+  4. qptm_kinases — get kinases from qPTM's integrated data
 """
 
 from __future__ import annotations
@@ -128,14 +129,27 @@ def _qptm_search(
 
 # ── Tool 2: qptm_site_conditions ──────────────────────────────────
 
-_CONTRAST_TYPES = frozenset(
-    {"disease", "pharmacological", "genetic", "physical", "cell_state", "other"}
-)
+_CONTRAST_TYPE_ALIASES = {
+    "cell_state": "cell_state",
+    "cellstate": "cell_state",
+    "drug_treatment": "drug_treatment",
+    "drugtreatment": "drug_treatment",
+    "pharmacological": "drug_treatment",
+    "genetic_perturbation": "genetic_perturbation",
+    "geneticperturbation": "genetic_perturbation",
+    "genetic": "genetic_perturbation",
+    "disease": "disease",
+    "physical_stimulus": "physical_stimulus",
+    "physicalstimulus": "physical_stimulus",
+    "physical": "physical_stimulus",
+    "other": "other",
+}
+_CONTRAST_TYPES = frozenset(_CONTRAST_TYPE_ALIASES.values())
 
 
 def normalize_contrast_type(value: str | None) -> str:
-    t = (value or "").strip().lower()
-    return t if t in _CONTRAST_TYPES else ""
+    t = (value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return _CONTRAST_TYPE_ALIASES.get(t, "")
 
 
 def condition_log2_abs(cond: dict[str, Any]) -> float:
@@ -150,21 +164,67 @@ def condition_log2_abs(cond: dict[str, Any]) -> float:
     return 0.0
 
 
+def condition_query_tokens(condition_query: str) -> list[str]:
+    q = (condition_query or "").strip()
+    if not q:
+        return []
+    quoted = [t.strip() for t in re.findall(r"['\"]([^'\"]{2,80})['\"]", q) if t.strip()]
+    if quoted:
+        return quoted
+    return [t for t in re.split(r"[\s,;]+", q) if len(t) >= 2]
+
+
+def _condition_blob(cond: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in (
+        "condition_name",
+        "condition",
+        "detail_condition",
+        "sample",
+        "samples",
+        "samplecondition",
+    ):
+        val = cond.get(key)
+        if isinstance(val, list):
+            parts.extend(str(x) for x in val if x)
+        elif val:
+            parts.append(str(val))
+    return " ".join(parts).lower()
+
+
+def row_matches_condition_query(cond: dict[str, Any], tokens: list[str]) -> bool:
+    if not tokens:
+        return True
+    blob = _condition_blob(cond)
+    return all(tok.lower() in blob for tok in tokens)
+
+
 def filter_site_conditions(
     conditions: list[dict[str, Any]],
     contrast_type: str = "",
+    condition_query: str = "",
 ) -> list[dict[str, Any]]:
     """Filter then optionally sort. Apply *before* limit so disease rows are kept."""
     rows = [c for c in conditions if isinstance(c, dict)]
     ctype = normalize_contrast_type(contrast_type)
+    tokens = condition_query_tokens(condition_query)
     if ctype:
-        rows = [
+        typed = [
             c
             for c in rows
-            if str(c.get("contrast_type") or "").strip().lower() == ctype
+            if normalize_contrast_type(str(c.get("condition_type") or c.get("contrast_type") or "")) == ctype
         ]
-        if ctype == "disease":
-            rows = sorted(rows, key=condition_log2_abs, reverse=True)
+        if typed or not tokens:
+            rows = typed
+    if tokens:
+        matched = [c for c in rows if row_matches_condition_query(c, tokens)]
+        if matched:
+            rows = matched
+        elif ctype:
+            # Contrast filter emptied the named condition; retry tokens on untyped rows.
+            rows = [c for c in conditions if isinstance(c, dict) and row_matches_condition_query(c, tokens)]
+    if ctype == "disease" or tokens:
+        rows = sorted(rows, key=condition_log2_abs, reverse=True)
     return rows
 
 
@@ -173,7 +233,8 @@ def _by_type_counts(conditions: list[dict[str, Any]]) -> dict[str, int]:
     for c in conditions:
         if not isinstance(c, dict):
             continue
-        t = str(c.get("contrast_type") or "unannotated").strip().lower() or "unannotated"
+        raw = str(c.get("condition_type") or c.get("contrast_type") or "")
+        t = normalize_contrast_type(raw) or (raw.strip().lower() or "unannotated")
         counts[t] = counts.get(t, 0) + 1
     return counts
 
@@ -182,8 +243,10 @@ def _qptm_site_conditions(
     uniprot_ac: str,
     position: int,
     ptm_type: str = "all",
-    limit: int = 15,
+    limit: int = 50,
     contrast_type: str = "",
+    condition_type: str = "",
+    condition_query: str = "",
 ) -> dict[str, Any]:
     """Get experimental conditions for a PTM site via /api/protein.php."""
     ac = (uniprot_ac or "").strip().upper()
@@ -212,7 +275,7 @@ def _qptm_site_conditions(
         status = data.get("http_status")
         return {
             "error": (
-                f"位点定量接口失败（HTTP {status}）。未取得 fold-change 数值。"
+                f"Site-conditions lookup failed (HTTP {status}). No fold-change values returned."
                 if status
                 else str(data.get("error"))
             ),
@@ -224,15 +287,26 @@ def _qptm_site_conditions(
             ),
         }
     raw = [c for c in (data.get("conditions") or []) if isinstance(c, dict)]
-    ctype = normalize_contrast_type(contrast_type)
-    filtered = filter_site_conditions(raw, ctype)
-    cap = max(1, min(int(limit or 15), 200)) if filtered else 0
+    ctype = normalize_contrast_type(condition_type or contrast_type)
+    cq = (condition_query or "").strip()
+    filtered = filter_site_conditions(raw, ctype, cq)
+    cap = max(1, min(int(limit or 50), 200)) if filtered else 0
     shown = filtered[:cap] if filtered else []
     by_type = _by_type_counts(raw)
     total_all = int(data.get("total_conditions") or len(raw))
-    total = len(filtered) if ctype else total_all
+    total = len(filtered) if (ctype or cq) else total_all
 
-    if ctype:
+    if cq and ctype:
+        summary = (
+            f"qPTM: {total} {ctype}-type condition(s) matching {cq!r} for {ac} "
+            f"position {pos} (of {total_all} total). "
+        )
+    elif cq:
+        summary = (
+            f"qPTM: {total} condition(s) matching {cq!r} for {ac} position {pos} "
+            f"(of {total_all} total). "
+        )
+    elif ctype:
         summary = (
             f"qPTM: {total} {ctype}-type condition(s) for {ac} position {pos} "
             f"(of {total_all} total). "
@@ -252,10 +326,12 @@ def _qptm_site_conditions(
         ]
         if significant:
             summary += f"{len(significant)} condition(s) show |log2| > 1 (significant change)."
-    elif data.get("message") and not ctype:
+    elif data.get("message") and not ctype and not cq:
         summary += str(data["message"])
     elif not raw:
-        summary += "库内无定量 / no site-specific quantitative records."
+        summary += "No site-specific quantitative records in qPTM."
+    elif cq:
+        summary += f"No conditions matching {cq!r} for this site."
     elif ctype:
         summary += f"No {ctype}-type conditions for this site."
     return {
@@ -263,7 +339,8 @@ def _qptm_site_conditions(
         "uniprot_ac": ac,
         "position": pos,
         "gene": data.get("gene"),
-        "contrast_type": ctype or None,
+        "condition_type": ctype or None,
+        "condition_query": cq or None,
         "by_type": by_type,
         "total_conditions": total,
         "total_conditions_all": total_all,
@@ -271,7 +348,85 @@ def _qptm_site_conditions(
     }
 
 
-# ── Tool 3: qptm_kinases ──────────────────────────────────────────
+def _qptm_condition_sites(
+    query: str,
+    contrast_type: str = "",
+    condition_type: str = "",
+    organism: str = "all",
+    ptm_type: str = "all",
+    page: int = 1,
+    per_page: int = 0,
+    limit: int = 50,
+    sort: str = "abs_log2",
+) -> dict[str, Any]:
+    """Look up PTM sites/events for a named condition via /api/conditions.php."""
+    q = (query or "").strip()
+    ctype = normalize_contrast_type(condition_type or contrast_type)
+    if not q and not ctype:
+        return {
+            "error": "qptm_condition_sites requires a condition name (query) and/or condition_type",
+            "http_status": 400,
+            "summary": "Missing condition name for condition-to-site lookup",
+        }
+    cap = max(1, min(int(per_page or limit or 50), 100))
+    sort_key = (sort or "abs_log2").strip().lower()
+    if sort_key not in ("abs_log2", "qptmscore"):
+        sort_key = "abs_log2"
+    params: dict[str, Any] = {
+        "page": max(1, int(page or 1)),
+        "per_page": cap,
+        "sort": sort_key,
+        "organism": organism or "all",
+        "ptm_type": ptm_type or "all",
+    }
+    if q:
+        params["q"] = q
+    if ctype:
+        params["condition_type"] = ctype
+    data = _get("/conditions.php", params)
+    if data.get("error"):
+        status = data.get("http_status")
+        return {
+            "error": (
+                f"Condition-sites lookup failed (HTTP {status})."
+                if status
+                else str(data.get("error"))
+            ),
+            "http_status": status,
+            "query": q,
+            "summary": f"Condition lookup failed for {q or ctype}: {data.get('error')}",
+        }
+    events = [e for e in (data.get("events") or []) if isinstance(e, dict)]
+    conditions = [c for c in (data.get("conditions") or []) if isinstance(c, dict)]
+    total_events = int(data.get("total") or len(events))
+    matched = int(data.get("matched_conditions") or len(conditions))
+    label = q or ctype or "condition"
+    summary = (
+        f"qPTM condition {label!r}: {matched} matching condition(s), "
+        f"{total_events} event(s) (showing {len(events)}). "
+    )
+    if events:
+        genes = sorted({str(e.get("gene") or "") for e in events if e.get("gene")})
+        if genes:
+            summary += f"Genes: {', '.join(genes[:10])}."
+    elif data.get("message"):
+        summary += str(data["message"])
+    return {
+        "summary": summary,
+        "query": q or None,
+        "condition_type": ctype or None,
+        "ptm_type": params["ptm_type"],
+        "sort": sort_key,
+        "matched_conditions": matched,
+        "total": total_events,
+        "page": data.get("page", params["page"]),
+        "per_page": cap,
+        "conditions": conditions,
+        "events": events,
+    }
+
+
+# ── Tool 4: qptm_kinases ──────────────────────────────────────────
 
 def _qptm_kinases(
     uniprot_ac: str,
@@ -373,20 +528,85 @@ def register_qptm_tools() -> None:
                              "methylation", "glycosylation", "sumoylation"],
                     "description": "Filter by PTM type (default: all)",
                 },
-                "contrast_type": {
+                "condition_type": {
                     "type": "string",
-                    "enum": ["disease", "pharmacological", "genetic", "physical",
-                             "cell_state", "other"],
+                    "enum": ["cell_state", "drug_treatment", "genetic_perturbation",
+                             "disease", "physical_stimulus", "other"],
                     "description": (
                         "Optional Condition type filter matching qPTM Browse/API "
-                        "(disease|pharmacological|genetic|physical|cell_state|other). "
-                        "Applied before the row limit."
+                        "(cell_state|drug_treatment|genetic_perturbation|disease|"
+                        "physical_stimulus|other). Applied before the row limit."
                     ),
+                },
+                "condition_query": {
+                    "type": "string",
+                    "description": (
+                        "Optional condition-name filter (independent token such as BRCA/UCEC, "
+                        "or a quoted condition name). Applied before the row limit."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max conditions to return (default 50, max 200)",
                 },
             },
             "required": ["uniprot_ac", "position"],
         },
         handler=_qptm_site_conditions,
+    )
+
+    registry.register(
+        name="qptm_condition_sites",
+        description=(
+            "Look up quantitative PTM sites/events for a named experimental condition "
+            "(e.g. UCEC, BRCA) via the qPTM conditions API. Use when the user asks which "
+            "sites change most under a condition rather than naming a gene/site first. "
+            "Optional sort=abs_log2 ranks events by |log2 ratio|."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Condition name or keyword (e.g. UCEC, BRCA)",
+                },
+                "condition_type": {
+                    "type": "string",
+                    "enum": ["cell_state", "drug_treatment", "genetic_perturbation",
+                             "disease", "physical_stimulus", "other"],
+                    "description": "Optional condition type filter",
+                },
+                "organism": {
+                    "type": "string",
+                    "enum": ["all", "human", "mouse", "rat", "yeast"],
+                    "description": "Filter by organism (default: all)",
+                },
+                "ptm_type": {
+                    "type": "string",
+                    "enum": ["all", "phosphorylation", "acetylation", "ubiquitylation",
+                             "methylation", "glycosylation", "sumoylation"],
+                    "description": "Filter by PTM type (default: all)",
+                },
+                "sort": {
+                    "type": "string",
+                    "enum": ["abs_log2", "qptmscore"],
+                    "description": "Event sort order (default abs_log2)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max events to return (default 50, max 100)",
+                },
+                "per_page": {
+                    "type": "integer",
+                    "description": "Alias for limit (API page size)",
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "Result page (default 1)",
+                },
+            },
+        },
+        handler=_qptm_condition_sites,
     )
 
     registry.register(

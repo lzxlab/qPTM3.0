@@ -16,6 +16,7 @@ _PREDICTED_TOOLS = frozenset(
         "ptmphase_phosllps",
         "dscope_predictions",
         "gpssumo2_sites",
+        "signalp_prediction",
     }
 )
 
@@ -76,6 +77,52 @@ def _manifest_meta(tool_name: str) -> dict[str, Any]:
     }
 
 
+def _is_row_list(val: Any) -> bool:
+    return isinstance(val, list) and bool(val) and isinstance(val[0], dict)
+
+
+_PREFERRED_LIST_KEYS = (
+    "correlations",
+    "ptm_hits",
+    "protein_hits",
+    "literature",
+    "public",
+    "relations",
+    "alterations",
+    "regulators",
+    "as_substrate",
+    "as_partner",
+    "as_kinase",
+    "domains",
+    "experimental",
+    "predicted",
+    "probabilities",
+    "enzymes",
+    "within",
+    "between",
+    "conditions",
+    "events",
+    "kinases",
+    "sites",
+    "hits",
+    "rows",
+    "entries",
+    "items",
+    "results",
+    "associations",
+    "interactions",
+    "pathways",
+    "papers",
+    "abstracts",
+    "curves",
+    "mutations",
+    "predictions",
+    "localizations",
+    "segments",
+    "proteins",
+)
+
+
 def _extract_rows(data: Any) -> list[dict[str, Any]]:
     if data is None:
         return []
@@ -83,35 +130,65 @@ def _extract_rows(data: Any) -> list[dict[str, Any]]:
         return [r for r in data if isinstance(r, dict)]
     if not isinstance(data, dict):
         return [{"value": data}]
-    for key in (
-        "kinases",
-        "conditions",
-        "events",
-        "entries",
-        "items",
-        "results",
-        "sites",
-        "hits",
-        "rows",
-        "associations",
-        "interactions",
-        "pathways",
-        "papers",
-        "abstracts",
-        "curves",
-        "mutations",
-        "predictions",
-        "kinase_best",
-        "localizations",
-        "segments",
-        "proteins",
-    ):
+
+    skip: set[str] = set()
+    if _is_row_list(data.get("correlations")):
+        skip.add("kinase_best")
+
+    rows: list[dict[str, Any]] = []
+    used: set[str] = set()
+    for key in _PREFERRED_LIST_KEYS:
+        if key in skip:
+            continue
         val = data.get(key)
-        if isinstance(val, list) and val and isinstance(val[0], dict):
-            return list(val)
+        if _is_row_list(val):
+            rows.extend(val)
+            used.add(key)
+    for key, val in data.items():
+        if key in used or key in skip:
+            continue
+        if _is_row_list(val):
+            rows.extend(val)
+
+    if rows:
+        return rows
+
+    nested = data.get("mutations_by_dataset")
+    if isinstance(nested, dict):
+        flat: list[dict[str, Any]] = []
+        for ds, items in nested.items():
+            if not isinstance(items, list):
+                continue
+            for it in items:
+                if isinstance(it, dict):
+                    flat.append({**it, "dataset": ds})
+        if flat:
+            return flat
+
     if any(isinstance(v, dict) for v in data.values()):
         return [data]
     return [data]
+
+
+def _row_log2_abs(row: dict[str, Any]) -> float:
+    rng = row.get("log2_range") if isinstance(row.get("log2_range"), dict) else {}
+    for src in (
+        row.get("log2fc"),
+        row.get("log2_fold_change"),
+        row.get("log2_ratio"),
+        row.get("qratio"),
+        row.get("fold_change"),
+        row.get("fc"),
+        rng.get("avg"),
+        rng.get("max"),
+        rng.get("min"),
+    ):
+        try:
+            if src is not None:
+                return abs(float(src))
+        except (TypeError, ValueError):
+            continue
+    return 0.0
 
 
 def _sort_key(tool_name: str, row: dict[str, Any]) -> tuple:
@@ -125,12 +202,13 @@ def _sort_key(tool_name: str, row: dict[str, Any]) -> tuple:
         except (TypeError, ValueError):
             sc = 0.0
         return (-sc,)
-    if tool_name in ("qptm_site_conditions", "ekpi_quantitative", "cancerproteome_disease"):
-        for k in ("log2fc", "log2_fold_change", "qratio", "fold_change", "fc"):
-            try:
-                return (-abs(float(row.get(k) or 0)),)
-            except (TypeError, ValueError):
-                continue
+    if tool_name in (
+        "qptm_site_conditions",
+        "qptm_condition_sites",
+        "ekpi_quantitative",
+        "cancerproteome_disease",
+    ):
+        return (-_row_log2_abs(row),)
     if tool_name == "ptmd_disease":
         has_pmid = 1 if row.get("pmid") else 0
         return (-has_pmid,)
@@ -191,13 +269,13 @@ def format_tool_block(
     tool_name: str,
     invoke_result: dict[str, Any],
     *,
-    limit: int = 15,
+    limit: int = 50,
     tier: str | None = None,
 ) -> dict[str, Any]:
     """Turn one registry/MCP invoke result into a source block."""
     meta = _manifest_meta(tool_name)
     data = invoke_result.get("data")
-    cap = max(1, min(int(limit or 15), 200))
+    cap = max(1, min(int(limit or 50), 200))
     wipe = isinstance(data, dict) and bool(data.get("truncated")) and "preview" in data
     if wipe:
         rows = []

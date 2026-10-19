@@ -13,7 +13,6 @@ fasta_file/
 
 # Runtime / generated data (keep scripts and .gitkeep)
 collection-agent/runtime/collection/
-collection-agent/dist/
 collection-agent/.pi/
 collection-agent/sessions/
 collection-agent/L2M3-master/

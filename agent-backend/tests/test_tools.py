@@ -30,7 +30,7 @@ def test_tool_registration():
     register_dbptm_tools()
     register_stability_tools()
 
-    expected = 12  # 3 qPTM + 2 iPTMnet + 1 UniProt + 4 PSP + 1 dbPTM + 1 stability
+    expected = 13  # 4 qPTM + 2 iPTMnet + 1 UniProt + 4 PSP + 1 dbPTM + 1 stability
     actual = len(registry.tool_names)
     assert actual == expected, f"Expected {expected} tools, got {actual}"
     assert "ptm_stability" in registry.tool_names, "ptm_stability should be registered"

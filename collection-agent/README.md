@@ -26,25 +26,6 @@ npx tsx src/index.ts resolve-urls \
 Backend: `POST /collection/resolve-urls` with JSON `{ "accession": "PXD012345" }`,
 or chat messages like “get PRIDE PXD012345 download link” (routed via collection mode).
 
-## Pipeline
-
-| Stage | UI label | Purpose |
-|-------|----------|---------|
-| 1 | Screen | LLM abstract screening |
-| 2 | Full text | Repository IDs + OA fulltext fetch |
-| 3 | Metadata | `literature_info` row |
-| 4 | Supplementary | Scout / manual table upload |
-| 5 | Quant table | Parse to qratio schema |
-| 6 | MS URLs | PRIDE / iProX / jPOST / CPTAC download links |
-
-Stage 6 (and `resolve-urls`) uses Python helpers in `scripts/`:
-
-- `1_html_pride_extract.py`
-- `2_xml_iprox_extract.py`
-- `3_html_jpost_extract.py`
-- `4_PDC_CPTAC_extract.py`
-
-Schema reference: `files/example_qratio.csv`.
 
 ## Layout
 
@@ -65,8 +46,8 @@ collection-agent/
 
 Copy `.env.example` → `.env`. Typical keys:
 
-- `OPENCODE_API_KEY` or `DEEPSEEK_API_KEY`
-- `MODEL` (e.g. `opencode-go/deepseek-v4-flash`)
+- `DEEPSEEK_API_KEY`
+- `MODEL` (e.g. `deepseek/deepseek-v4-flash`)
 - `UNPAYWALL_EMAIL`
 - `NCBI_API_KEY` / `NCBI_EMAIL`
 

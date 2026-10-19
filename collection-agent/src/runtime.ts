@@ -18,9 +18,9 @@ export interface LlmRuntime {
 
 /** Known bare model ids → provider when MODEL has no "provider/" prefix */
 const BARE_MODEL_PROVIDER: Record<string, string> = {
-  "deepseek-flash": "opencode-go",
-  "deepseek-v4-flash": "opencode-go",
-  "deepseek-v4-pro": "opencode-go",
+  "deepseek-flash": "deepseek",
+  "deepseek-v4-flash": "deepseek",
+  "deepseek-v4-pro": "deepseek",
   "deepseek-chat": "deepseek",
   "deepseek-reasoner": "deepseek",
   "glm-5.2": "opencode-go",
@@ -38,9 +38,7 @@ const BARE_MODEL_PROVIDER: Record<string, string> = {
 const OPENCODE_GO_DEEPSEEK_IDS = new Set(["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro"])
 
 const DEFAULT_FALLBACKS = [
-  "opencode-go/deepseek-v4-flash",
-  "opencode-go/glm-5.2",
-  "opencode-go/deepseek-v4-pro",
+  "deepseek/deepseek-v4-pro",
 ]
 
 const BLOCKED_MODELS = new Set([
@@ -145,7 +143,7 @@ export function modelCandidateIds(primaryRaw?: string): string[] {
   const primary =
     primaryRaw?.trim() ||
     process.env.MODEL?.trim() ||
-    "opencode-go/deepseek-flash"
+    "deepseek/deepseek-v4-flash"
   const fallbacks = parseFallbackList(process.env.MODEL_FALLBACKS)
   const out: string[] = []
   const seen = new Set<string>()

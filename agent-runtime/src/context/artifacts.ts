@@ -35,18 +35,74 @@ export interface Artifact {
 }
 
 const MAX_ROWS_PER_BLOCK = 200;
-const MAX_ROW_FIELDS = 8;
+const MAX_ROW_FIELDS = 12;
 const MAX_FIELD_CHARS = 120;
+const MAX_ARRAY_ITEMS = 4;
 
-function compactRow(row: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  let n = 0;
+const PRIORITY_FIELD_RE =
+  /^(log2|qratio|fold_change|fc|p[_-]?value|pvalue|pval|fdr|qvalue|score|rho|event_count|n_events|condition_name|condition|kinase|drug|pmid|in_vivo|in_vitro|evidence)/i;
+
+function clipScalar(v: unknown): unknown {
+  if (typeof v === "string") return v.slice(0, MAX_FIELD_CHARS);
+  if (typeof v === "number" || typeof v === "boolean") return v;
+  return String(v).slice(0, MAX_FIELD_CHARS);
+}
+
+function flattenNested(prefix: string, value: unknown, out: Record<string, unknown>): void {
+  if (value == null || value === "") return;
+  if (Array.isArray(value)) {
+    const items = value
+      .slice(0, MAX_ARRAY_ITEMS)
+      .map((item) => (item != null && typeof item === "object" ? JSON.stringify(item) : String(item)))
+      .filter((s) => s && s !== "[]" && s !== "{}");
+    if (items.length) out[prefix] = items.join("; ").slice(0, MAX_FIELD_CHARS);
+    return;
+  }
+  if (typeof value !== "object") {
+    out[prefix] = clipScalar(value);
+    return;
+  }
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (v == null || v === "") continue;
+    const key = `${prefix}_${k}`;
+    if (v != null && typeof v === "object") {
+      if (Array.isArray(v)) flattenNested(key, v, out);
+      else if (Object.keys(v as object).length && Object.values(v as object).every((x) => x == null || typeof x !== "object")) {
+        flattenNested(key, v, out);
+      }
+      continue;
+    }
+    out[key] = clipScalar(v);
+  }
+}
+
+/** Lift nested dicts (log2_range.avg → log2_avg) so quantitative fields survive compaction. */
+export function flattenRow(row: Record<string, unknown>): Record<string, unknown> {
+  const flat: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(row)) {
     if (v == null || v === "") continue;
-    if (typeof v === "object") continue;
-    if (n >= MAX_ROW_FIELDS) break;
-    out[k] = typeof v === "string" ? v.slice(0, MAX_FIELD_CHARS) : v;
-    n += 1;
+    if (v != null && typeof v === "object") {
+      flattenNested(k.replace(/_range$/i, ""), v, flat);
+      continue;
+    }
+    flat[k] = clipScalar(v);
+  }
+  return flat;
+}
+
+function fieldPriority(key: string): number {
+  const k = key.toLowerCase();
+  if (PRIORITY_FIELD_RE.test(k) || k.includes("log2") || k.endsWith("_avg")) return 0;
+  return 1;
+}
+
+export function compactRow(row: Record<string, unknown>): Record<string, unknown> {
+  const flat = flattenRow(row);
+  const keys = Object.keys(flat).sort((a, b) => fieldPriority(a) - fieldPriority(b) || a.localeCompare(b));
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (Object.keys(out).length >= MAX_ROW_FIELDS) break;
+    out[key] = flat[key];
   }
   return out;
 }

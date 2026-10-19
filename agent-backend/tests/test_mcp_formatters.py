@@ -117,3 +117,71 @@ def test_truncated_preview_keeps_total_from_summary():
     assert block["total"] == 99
     assert block["truncated"] is True
     assert block["summary"].endswith("…") or "99" in block["summary"]
+
+
+def test_default_limit_is_50():
+    rows = [{"kinase_gene": f"K{i}"} for i in range(60)]
+    block = format_tool_block(
+        "qptm_kinases",
+        {"success": True, "summary": "60 kinases", "data": {"kinases": rows}},
+    )
+    assert block["shown"] == 50
+    assert block["total"] == 60
+    assert block["truncated"] is True
+
+
+def test_extracts_ptm_hits_and_regulators_as_rows():
+    cp = format_tool_block(
+        "cancerproteome_disease",
+        {
+            "success": True,
+            "summary": "CancerProteome",
+            "data": {
+                "ptm_hits": [
+                    {"gene": "MYH9", "position": 1445, "qratio": 0.553, "cancer": "UCEC"},
+                    {"gene": "MYH9", "position": 1445, "qratio": 1.2, "cancer": "BRCA"},
+                ],
+                "protein_hits": [{"gene": "MYH9", "fc": 1.1}],
+            },
+        },
+        limit=50,
+    )
+    assert len(cp["rows"]) == 3
+    assert any(r.get("qratio") == 0.553 for r in cp["rows"])
+
+    weram = format_tool_block(
+        "weram_regulators",
+        {
+            "success": True,
+            "summary": "WERAM",
+            "data": {
+                "regulators": [
+                    {"enzyme": "HAT1"},
+                    {"enzyme": "KAT2A"},
+                ]
+            },
+        },
+        limit=50,
+    )
+    assert len(weram["rows"]) == 2
+
+
+def test_qptm_condition_sites_sort_by_abs_log2():
+    block = format_tool_block(
+        "qptm_condition_sites",
+        {
+            "success": True,
+            "summary": "UCEC events",
+            "data": {
+                "events": [
+                    {"gene": "A", "log2_ratio": 0.2},
+                    {"gene": "B", "log2_ratio": -3.01},
+                    {"gene": "C", "log2_ratio": 1.26},
+                ]
+            },
+        },
+        limit=50,
+    )
+    assert block["rows"][0]["gene"] == "B"
+    assert block["rows"][1]["gene"] == "C"
+

@@ -15,7 +15,6 @@ import { getLlm } from "../llm/client.js";
 import type { AgentEvent } from "../sse.js";
 import { mergeCitation, type Citation } from "./citations.js";
 import { ANSWER_LANGUAGE_RULE } from "./language.js";
-import { retrieveIntentToolsLlm } from "./retriever.js";
 import { containsProtocolMarkup, sanitizeUserVisibleText, stripProtocolMarkup } from "./protocol.js";
 import { AgentPhase, setPhase } from "./phase.js";
 import { buildIntentArgs } from "./intent-args.js";
@@ -103,6 +102,11 @@ async function llmToolsFor(names: string[]): Promise<OpenAI.Chat.ChatCompletionT
             uniprot_ac: { type: "string" },
             ptm_type: { type: "string" },
             limit: { type: "integer" },
+            condition_query: { type: "string" },
+            condition_type: { type: "string" },
+            drug: { type: "string" },
+            disease: { type: "string" },
+            cancer: { type: "string" },
             pmids: { type: "string" },
             fulltext_pmids: { type: "string" },
           },
@@ -120,13 +124,14 @@ Rules:
 2. Off-topic (not molecular/cell biology, protein, or PTM): briefly refuse and steer to PTM research. No tools.
 3. Biology concepts: you may answer from knowledge. Call tools only if a lookup would materially help.
 4. If a site-level question is missing gene/protein or residue, ask in natural language. Do not invent a UniProt AC.
-5. Evidence-seeking questions: call bound database tools. Independent lookups should be parallel in one turn.
-6. Keep going until you can support the answer or the tools came back empty. Say empty honestly — never pretend a lookup succeeded.
-7. [empty_result]=no records; [truncated]=raise limit or add sources; [predicted_only]=not experimental; [call_bug]=failed.
-8. Follow entities in observations to tighten the next query or pick another intent. Do not repeat the exact same empty call.
-9. Literature queries must be specific (gene + site + mechanism). Never search generic "PTM site". search_literature already returns top abstracts; request fulltext_pmids only for a few key papers.
-10. web_search is optional and specific — not a generic PTM search.
-11. Never emit protocol markup, tool XML, or DSML. User-visible text is natural language only.
+5. If the user named a cancer, drug, disease, or experimental condition and you cannot fill the matching argument with the name that database uses, ask in the answer text. Do not invent codes or silently map full names.
+6. Evidence-seeking questions: call bound database tools. Independent lookups should be parallel in one turn.
+7. Keep going until you can support the answer or the tools came back empty. Say empty honestly — never pretend a lookup succeeded. If returned rows do not match the requested cancer/drug/disease/condition, say what you found and ask how to proceed; do not claim the database has no records.
+8. [empty_result]=no rows for those arguments; [truncated]=raise limit or add sources; [predicted_only]=not experimental; [call_bug]=failed.
+9. Follow entities in observations to tighten the next query or pick another intent. Do not repeat the exact same empty call.
+10. Literature queries must be specific (gene + site + mechanism). Never search generic "PTM site". search_literature already returns top abstracts; request fulltext_pmids only for a few key papers.
+11. web_search is optional and specific — not a generic PTM search.
+12. Never emit protocol markup, tool XML, or DSML. User-visible text is natural language only.
 
 Each turn do exactly one thing: call tools, or write the user-visible answer. Not both.
 If the intents this question needs have not run yet, or returned nothing usable, only call tools.
@@ -153,10 +158,9 @@ export async function* runReactLoop(
   const emptyKeys = new Set<string>();
   const usedExact = new Set<string>();
 
-  yield setPhase(session, AgentPhase.retrieving_tools, "Selecting tools");
+  yield setPhase(session, AgentPhase.retrieving_tools, "Loading tools");
   const catalog = await listMcpTools();
-  const selected = await retrieveIntentToolsLlm(userMessage, memory, catalog);
-  const bound = selected.filter((n) => n !== "web_search");
+  const bound = catalog.map((t) => t.name).filter((n) => n && n !== "web_search");
   yield {
     type: "phase_update",
     phase: AgentPhase.retrieving_tools,

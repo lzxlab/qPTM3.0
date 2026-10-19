@@ -150,11 +150,10 @@ def _npx_bin() -> str:
 def _collection_env() -> dict[str, str]:
     env = os.environ.copy()
     env["NODE_ENV"] = env.get("NODE_ENV", "production")
-    if settings.deepseek_api_key and not env.get("OPENCODE_API_KEY"):
-        env["OPENCODE_API_KEY"] = settings.deepseek_api_key
-    # Collection uses pi-ai provider/model ids (e.g. opencode-go/deepseek-v4-flash).
-    # Do NOT map DEEPSEEK_MODEL (chat HTTP bare id) → opencode-go/… — catalogs differ
-    # (e.g. qwen3.5-plus is Zen/opencode, not OpenCode Go).
+    if settings.deepseek_api_key:
+        env["DEEPSEEK_API_KEY"] = settings.deepseek_api_key
+    # Collection uses pi-ai provider/model ids (e.g. deepseek/deepseek-v4-flash).
+    # Do NOT map DEEPSEEK_MODEL (chat HTTP bare id) → collection MODEL — catalogs differ.
     if settings.collection_model and not env.get("MODEL"):
         env["MODEL"] = settings.collection_model
     if settings.collection_fallback_models and not env.get("MODEL_FALLBACKS"):

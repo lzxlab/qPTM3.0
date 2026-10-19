@@ -1,6 +1,8 @@
-# qPTM 3.0 — Quantitative PTM Database & AI Agent
+# qPTM 3.0: the AI-enhanced knowledgebase for protein post-translational modification dynamics
 
 A comprehensive resource for quantitative post-translational modification (PTM) proteomics data, integrated with an AI research assistant that guides users through a structured PTM investigation workflow.
+
+![]("Abstract.png")
 
 
 ## Architecture
@@ -24,7 +26,7 @@ The browser UI calls `/agent-api/*` (Apache routes in `deploy/apache-agent-runti
 ## Collection agent
 
 | Step | Purpose |
-|-------|----------|---------|
+|-------|----------|
 | 1 | LLM abstract screening |
 | 2 | OA fulltext fetch |
 | 3 | Experimental information extraction |
